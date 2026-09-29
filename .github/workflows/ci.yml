@@ -51,6 +51,12 @@ jobs:
           yamllint --version
           python3 --version
 
+      - name: Install documentation toolchain (pinned, hash-checked)
+        run: |
+          python3 -m venv "$RUNNER_TEMP/docs-venv"
+          "$RUNNER_TEMP/docs-venv/bin/pip" install --quiet --require-hashes -r docs/requirements.txt
+          echo "$RUNNER_TEMP/docs-venv/bin" >> "$GITHUB_PATH"
+
       - name: Lint
         run: tests/lint.sh
 

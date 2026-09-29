@@ -29,8 +29,7 @@ the workstations.
 | `config/profiles/*.env` | Serving profiles |
 | `config/*.example.*` | nginx and OpenCode examples (placeholders only) |
 | `tests/` | Offline suites; `mock_vllm.py` imitates the vLLM API |
-| `docs/it/README.md` | Complete Italian translation of `README.md` |
-| `docs/TRANSLATING.md`, `docs/MAINTAINING.md` | Translation process; maintainer tasks |
+| `docs/` | Documentation sources (Markdown, Sphinx + MyST); `docs/requirements.txt` pins the toolchain |
 
 ## Commands
 
@@ -40,7 +39,7 @@ tests/lint.sh              # bash -n, shellcheck, py_compile, JSON, YAML, SPDX h
 tests/test-scripts.sh      # scripts against the mock server and a fake docker
 tests/test-proxy.sh docker # proxy container via start-proxy.sh, in front of the mock
 tests/test-proxy.sh native # same config with the distribution nginx, unprivileged
-tests/check-docs.sh        # EN/IT parity, links, placeholders, license text
+tests/check-docs.sh        # links, placeholders, license text, strict Sphinx build
 tests/check-secrets.sh     # run before every commit
 ```
 
@@ -48,12 +47,9 @@ On macOS, run the suites in a Linux container (see CONTRIBUTING.md).
 
 ## Rules
 
-- **English** for code, comments, messages and docs. When `README.md` changes,
-  update `docs/it/README.md` in the same change:
-  - keep the same `<!-- section: … -->` markers and identical `bash` commands;
-  - refresh the `translation-source` checksum;
-  - if you cannot translate, follow the "outdated" procedure in
-    `docs/TRANSLATING.md`.
+- **English** for code, comments, messages and docs. Keep `README.md` short;
+  details belong in `docs/`. Add new pages to the toctree in `docs/index.md`,
+  and link to repository files with full GitHub URLs so the built site works.
 - **No secrets, ever.** No keys, tokens, certificates or real host names. Use
   placeholders (`llm.lab.example`, `192.0.2.0/24`, `198.51.100.0/24`). History is
   public; run `tests/check-secrets.sh` before committing.

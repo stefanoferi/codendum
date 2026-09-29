@@ -2,8 +2,8 @@
 
 Thank you for helping. Codendum is a small project: scripts, configuration
 examples and documentation for running a shared coding-agent service on an
-NVIDIA GB10. Contributions of every size are welcome, from typo fixes and
-translations to measurements on real hardware.
+NVIDIA GB10. Contributions of every size are welcome, from typo fixes to
+measurements on real hardware.
 
 By participating you agree to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 Security issues must **not** be reported in public issues: see
@@ -17,8 +17,8 @@ Security issues must **not** be reported in public issues: see
 - **Share measurements** from a GB10: `bench.sh` summaries with the profile,
   image digest, model revision and DGX OS version. Measurements are especially
   valuable because the project cannot run GPU tests in CI.
-- **Improve the documentation or a translation.** See
-  [docs/TRANSLATING.md](docs/TRANSLATING.md).
+- **Improve the documentation** in [`docs/`](docs/). The pages are Markdown,
+  built with Sphinx and MyST; `tests/check-docs.sh` builds them in strict mode.
 - **Change scripts or configuration.** For anything larger than a small fix,
   open an issue first so that the approach can be agreed on.
 
@@ -47,14 +47,14 @@ Individual suites:
 | `tests/test-scripts.sh` | Script behaviour against a mock vLLM server and a fake `docker` |
 | `tests/test-proxy.sh docker` | The proxy container started by `start-proxy.sh`, in front of the mock |
 | `tests/test-proxy.sh native` | The same configuration with the distribution's nginx, run unprivileged |
-| `tests/check-docs.sh` | Required files, license text, EN ⇄ IT links, sections, commands, links, placeholders |
+| `tests/check-docs.sh` | Required files, license text, links, placeholders, strict Sphinx build of `docs/` |
 | `tests/check-secrets.sh` | Whitespace, `.gitignore` coverage, forbidden files, literal credentials |
 
 ## Guidelines
 
-- **English** for code, comments, messages and documentation. Translations
-  follow [docs/TRANSLATING.md](docs/TRANSLATING.md). A change to `README.md`
-  should update `docs/it/README.md` in the same pull request when possible.
+- **English** for code, comments, messages and documentation. Keep `README.md`
+  short and put details in the pages under `docs/`. Link to repository files
+  with full GitHub URLs, so that the links work in the built site too.
 - **Shell:** bash ≥ 4.4 with `set -Eeuo pipefail`, ShellCheck-clean, long option
   names, and `--help` on every script. Scripts must be safe by default:
   - validate the input;

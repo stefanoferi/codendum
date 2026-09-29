@@ -92,7 +92,7 @@ else
     elif have nvidia-ctk; then
         warn "NVIDIA runtime not listed by 'docker info'" "NVIDIA troubleshooting: sudo nvidia-ctk runtime configure --runtime=docker && sudo systemctl restart docker"
     else
-        failc "NVIDIA Container Toolkit not found" "it is preinstalled on DGX OS; see the NVIDIA container runtime guide linked in README"
+        failc "NVIDIA Container Toolkit not found" "it is preinstalled on DGX OS; see the NVIDIA container runtime guide listed in docs/reference.md"
     fi
 fi
 
@@ -201,7 +201,7 @@ for var in CODENDUM_VLLM_IMAGE CODENDUM_PROXY_IMAGE; do
     elif [[ "$image" == *@sha256:* ]]; then
         pass "${var} pinned by digest"
     else
-        warn "${var} not pinned by digest: ${image}" "see 'Upgrading' in README.md"
+        warn "${var} not pinned by digest: ${image}" "see 'Upgrading' in docs/installation.md"
     fi
 done
 

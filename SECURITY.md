@@ -54,8 +54,8 @@ If you are unsure whether something is in scope, report it privately anyway.
 
 ## Deployment hardening
 
-The threat model and the security-relevant defaults are described in the README
-section [Security model](README.md#security-model). In short:
+The threat model and the security-relevant defaults are described in
+[docs/security.md](docs/security.md). In short:
 
 - vLLM listens on `127.0.0.1` only.
 - nginx, in a hardened container on a dedicated port, is the single entry

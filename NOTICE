@@ -9,8 +9,8 @@ Licensed under the Apache License, Version 2.0 (see LICENSE).
 This repository contains configuration, scripts and documentation only.
 It does not include or redistribute model weights, container images or
 third-party software. Those components are downloaded separately by the
-operator and are governed by their own licenses and terms; see the
-section "Components, versions and licenses" of README.md.
+operator and are governed by their own licenses and terms; see
+docs/reference.md.
 
 CODE_OF_CONDUCT.md is adapted from the Contributor Covenant, version 3.0,
 and is licensed under CC BY-SA 4.0, as stated in that file.

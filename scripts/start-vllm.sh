@@ -196,7 +196,7 @@ if ((dry_run)); then
 fi
 
 # ---------------------------------------------------------------- launch
-require_cmd docker "see README: Prerequisites"
+require_cmd docker "see docs/installation.md"
 docker info >/dev/null 2>&1 || die "cannot talk to the Docker daemon (is it running, and is this user allowed to use it?)"
 
 if docker container inspect "$container" >/dev/null 2>&1; then

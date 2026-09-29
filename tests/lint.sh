@@ -10,7 +10,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 cd "$ROOT"
 
 mapfile -t shell_files < <(find scripts tests -type f -name '*.sh' | sort)
-mapfile -t python_files < <(find scripts tests -type f -name '*.py' | sort)
+mapfile -t python_files < <(find scripts tests docs -type f -name '*.py' -not -path 'docs/_build/*' | sort)
 mapfile -t json_files < <(find config .github -type f -name '*.json' 2>/dev/null | sort)
 
 echo "# bash -n"
@@ -27,7 +27,7 @@ fi
 
 echo "# python"
 check "py_compile" python3 -m py_compile "${python_files[@]}"
-find scripts tests -name '__pycache__' -type d -prune -exec rm -rf {} +
+find scripts tests docs -name '__pycache__' -type d -prune -exec rm -rf {} +
 
 echo "# json"
 for f in "${json_files[@]}"; do check "valid JSON: ${f}" python3 -m json.tool "$f"; done

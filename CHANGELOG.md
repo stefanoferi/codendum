@@ -15,7 +15,7 @@ GB10 (Lenovo ThinkStation PGX, DGX OS 7.2.3) on 2026-09-29, with:
 - a real OpenCode 2.0.19 session;
 - 40-user classroom simulations on both 64K profiles.
 
-The results are in the README.
+The results are in `docs/benchmark.md`.
 
 ### Added
 
@@ -69,8 +69,9 @@ The results are in the README.
   - JSON error responses.
 - `config/opencode.example.json` (OpenCode V2) and
   `config/opencode.v1.example.json` (OpenCode 1.x).
-- Documentation in English with a complete Italian translation, a translation
-  guide, a maintainer guide, a threat model and a component inventory.
+- Documentation in `docs/`, built with Sphinx and MyST: sizing, installation,
+  proxy, OpenCode, testing, benchmarks with measured results, profiles,
+  troubleshooting, threat model and component inventory.
 - Offline CI on Ubuntu 24.04 (x64 and ARM64): lint, script tests against a mock
   vLLM server, proxy tests with the nginx container and with the distribution
   package, documentation checks and secret hygiene. Minimal permissions, and

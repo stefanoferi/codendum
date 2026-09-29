@@ -23,6 +23,9 @@ token.txt
 .huggingface/
 hf-cache/
 
+# Generated documentation
+docs/_build/
+
 # Benchmark output and logs
 bench-results/
 *.log

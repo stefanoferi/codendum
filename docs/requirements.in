@@ -1,0 +1,5 @@
+# Documentation toolchain. Compile the pinned, hashed requirements.txt with:
+#   pip-compile --generate-hashes --allow-unsafe -o docs/requirements.txt docs/requirements.in
+sphinx==9.1.0
+myst-parser==5.1.0
+furo==2025.12.19
