@@ -1,4 +1,6 @@
-# Codendum
+<h1 align="center">
+  <img src="docs/_static/codendum-logo.png" alt="Codendum" width="560">
+</h1>
 
 Shared, local infrastructure for coding agents. A single NVIDIA GB10 system
 (DGX Spark) runs [vLLM](https://docs.vllm.ai/) with a coding model, and

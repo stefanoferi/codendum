@@ -19,6 +19,7 @@ Dates use ISO 8601 (YYYY-MM-DD).
 
 ### Added
 
+- Project logo in the README and in the documentation site, with a favicon.
 - Governance page in the documentation, with a possible future integration
   with [Admina](https://admina.org/) for personal-data redaction, a
   prompt-injection firewall, agent loop breaking and audit logging.

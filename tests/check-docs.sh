@@ -49,7 +49,8 @@ bad = []
 for path in files:
     text = open(path, encoding="utf-8").read()
     text = re.sub(r"```.*?```", "", text, flags=re.S)
-    for target in re.findall(r"\]\(([^)\s]+)\)", text):
+    targets = re.findall(r"\]\(([^)\s]+)\)", text) + re.findall(r'src="([^"]+)"', text)
+    for target in targets:
         if re.match(r"^(https?:|mailto:|#)", target):
             continue
         target = target.split("#", 1)[0]

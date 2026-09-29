@@ -30,9 +30,13 @@ ogp_social_cards = {"enable": False}
 
 html_theme = "furo"
 html_title = "Codendum"
+html_static_path = ["_static"]
+html_logo = "_static/codendum-logo.png"
+html_favicon = "_static/codendum-icon.png"
 html_copy_source = False
 html_show_sourcelink = False
 html_theme_options = {
+    "sidebar_hide_name": True,  # the logo already shows the name
     "source_repository": "https://github.com/stefanoferi/codendum/",
     "source_branch": "main",
     "source_directory": "docs/",
