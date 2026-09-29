@@ -1,0 +1,50 @@
+# SPDX-License-Identifier: Apache-2.0
+name: Bug report
+description: Something in the scripts, configuration or documentation does not work as described.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not report security vulnerabilities here; see SECURITY.md.
+        Remove API keys, host names, IP addresses and user data from anything you paste.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. scripts/start-vllm.sh --profile ...
+        2. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Codendum version or commit
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Host hardware and DGX OS version, vLLM image and digest, profile, OpenCode version, nginx version.
+      placeholder: |
+        Host: GB10, DGX OS 7.x
+        Image: vllm/vllm-openai:v0.30.0@sha256:...
+        Profile: classroom-64k
+        OpenCode: 2.0.x
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant output
+      description: Script output or log excerpts, with secrets removed.
+      render: text

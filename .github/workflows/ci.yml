@@ -1,0 +1,70 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Stefano Noferi
+#
+# Offline checks only: no GPU, no model weights, no secrets.
+# Uses the "pull_request" trigger (read-only token, no secrets for forks);
+# never switch to "pull_request_target".
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Offline checks (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # ARM64 matches the GB10 host architecture; x64 covers typical workstations.
+        runner: [ubuntu-24.04-arm, ubuntu-24.04]
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Ensure test tools
+        run: |
+          missing=()
+          for tool in shellcheck nginx yamllint; do
+            command -v "$tool" >/dev/null || missing+=("$tool")
+          done
+          if ((${#missing[@]})); then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends "${missing[@]}"
+          fi
+          bash --version | head -n 1
+          shellcheck --version | sed -n 2p
+          nginx -v
+          yamllint --version
+          python3 --version
+
+      - name: Lint
+        run: tests/lint.sh
+
+      - name: Script tests
+        run: tests/test-scripts.sh
+
+      - name: Proxy tests (nginx container)
+        run: tests/test-proxy.sh docker
+
+      - name: Proxy tests (distribution nginx)
+        run: tests/test-proxy.sh native
+
+      - name: Documentation checks
+        run: tests/check-docs.sh
+
+      - name: Secret hygiene
+        run: tests/check-secrets.sh

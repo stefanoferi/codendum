@@ -1,0 +1,43 @@
+# Local configuration and secrets: never commit these.
+.env
+.env.*
+!.env.example
+*.secrets.env
+secrets/
+keys/
+api-keys.*
+
+# TLS material
+*.pem
+*.key
+*.crt
+*.csr
+*.p12
+*.pfx
+certs/
+
+# Tokens and credentials
+*.token
+token.txt
+.netrc
+.huggingface/
+hf-cache/
+
+# Benchmark output and logs
+bench-results/
+*.log
+
+# Python and tooling caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+
+# Editors and OS files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~

@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: Apache-2.0
+name: Improvement
+description: Suggest an improvement to the scripts, configuration or documentation.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What are you trying to do, and what gets in the way today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: What should change? Mention the effect on existing installations, if any.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Measurements, documentation links or upstream references that support the proposal.

@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Stefano Noferi
+#
+# Keeps the SHA-pinned GitHub Actions up to date (with the version comment).
+# The vLLM image and the model revision are pinned in .env.example and are
+# updated manually; see docs/MAINTAINING.md.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "ci"
