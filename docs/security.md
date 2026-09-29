@@ -36,4 +36,5 @@ A summary of Codendum's threat model. For reporting vulnerabilities, see
 - **Policies and personal data.** Prompts contain users' code, and the nginx
   logs contain user ids and timestamps. The operator is responsible for the
   applicable policies, for example data protection rules for students or
-  employees, and for log retention.
+  employees, and for log retention. [Governance](governance.md) describes what
+  is covered today and a possible future integration with Admina.

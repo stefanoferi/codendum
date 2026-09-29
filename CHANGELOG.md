@@ -19,6 +19,9 @@ Dates use ISO 8601 (YYYY-MM-DD).
 
 ### Added
 
+- Governance page in the documentation, with a possible future integration
+  with [Admina](https://admina.org/) for personal-data redaction, a
+  prompt-injection firewall, agent loop breaking and audit logging.
 - `scripts/bench-classroom.sh --scenario python`: a Python project with pytest,
   next to the default Java scenario.
 

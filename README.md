@@ -87,6 +87,7 @@ Its sources in [`docs/`](docs/) are Markdown files built with
 | [Profiles](docs/profiles.md) | Serving profiles and how to switch them |
 | [Troubleshooting](docs/troubleshooting.md) | Common failures, logs and what to do |
 | [Security and limits](docs/security.md) | Threat model and responsibilities |
+| [Governance](docs/governance.md) | What is governed today, and a possible future integration with [Admina](https://admina.org/) |
 | [Reference](docs/reference.md) | Components, pinned versions, licenses, compatibility, sources |
 
 To build the HTML site locally:
@@ -96,6 +97,15 @@ python3 -m venv .venv
 .venv/bin/pip install --require-hashes -r docs/requirements.txt
 .venv/bin/sphinx-build -W --keep-going -b html docs docs/_build/html
 ```
+
+## Roadmap
+
+A possible next step is governance of the content that goes through the model:
+personal-data redaction, a prompt-injection firewall, agent loop breaking and a
+tamper-evident audit log. It could be provided by integrating
+[Admina](https://admina.org/), an open-source framework for governed AI, as a
+gateway between the proxy and vLLM. See [Governance](docs/governance.md). The
+integration is not implemented yet.
 
 ## Contributing and security
 

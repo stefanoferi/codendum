@@ -128,6 +128,8 @@ is distinguishable from "server unavailable".
   large prefill. The large prefill itself still takes time.
 - **Per-user token quotas, budgets or priorities** need a dedicated LLM gateway
   with authentication in front of vLLM. Codendum does not include or test one.
+  For governance of the content itself, see the possible integration with
+  Admina in [Governance](governance.md).
 
 ## Identity and upstream authentication
 

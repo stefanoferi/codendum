@@ -68,5 +68,6 @@ benchmark
 profiles
 troubleshooting
 security
+governance
 reference
 ```
