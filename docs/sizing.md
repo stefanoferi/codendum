@@ -19,7 +19,6 @@ about the same in memory.
 | 1 request × 65,536 tokens | 3 GiB |
 | 16 requests × 65,536 tokens | 48 GiB |
 | 24 requests × 65,536 tokens | 72 GiB |
-| 40 requests × 65,536 tokens | 120 GiB |
 | 8 requests × 131,072 tokens | 48 GiB |
 
 This is a lower bound before weights and runtime overhead. Block allocation,
@@ -37,7 +36,7 @@ tokens, or 20.8 full 64K contexts. Always check the figures on your own host.
 
 **Connected, active and waiting are different numbers.**
 
-- *Connected users* (40) have OpenCode open. Most of the time they are reading,
+- *Connected users* have OpenCode open. Most of the time they are reading,
   typing or running tests, and they send nothing.
 - *Active requests* are being processed. `--max-num-seqs` caps how many run at
   the same time (16 in the default profile).

@@ -35,7 +35,7 @@ Changes are recorded in [CHANGELOG.md](https://github.com/stefanoferi/codendum/b
 | Area | Status |
 | --- | --- |
 | Offline tests (CI) | Ubuntu 24.04 on x64 and ARM64: lint, script tests against a mock vLLM, proxy tests (nginx container and distribution package), documentation and secret checks |
-| Target host | DGX OS 7 on NVIDIA GB10. Run on a Lenovo ThinkStation PGX (DGX OS 7.2.3) on 2026-09-29: startup, smoke tests, proxy, a real OpenCode session and 40-user simulations |
+| Target host | DGX OS 7 on NVIDIA GB10. Run on a Lenovo ThinkStation PGX (DGX OS 7.2.3) on 2026-09-29: startup, smoke tests, proxy, a real OpenCode session and classroom simulations |
 | vLLM | Built for v0.30.0. `qwen3_coder` requires ≥ 0.25 (earlier releases had a different parser implementation); `CODENDUM_MAX_NUM_QUEUED_REQS` requires ≥ 0.29 |
 | OpenCode | V2 native configuration; V1 format provided separately |
 

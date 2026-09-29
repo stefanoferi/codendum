@@ -8,7 +8,7 @@ condensed.
 
 Codendum provides scripts, configuration examples and documentation for running
 vLLM on one NVIDIA GB10 (DGX Spark: ARM64, 128 GB unified CPU/GPU memory, DGX
-OS). The GB10 serves a coding model to about 40 OpenCode users on their own
+OS). The GB10 serves a coding model to concurrent OpenCode users on their own
 workstations. The GB10 does inference only; users' builds, tests and Git run on
 the workstations.
 

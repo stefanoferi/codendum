@@ -8,6 +8,13 @@ Dates use ISO 8601 (YYYY-MM-DD).
 
 ## [Unreleased]
 
+### Changed
+
+- The documentation describes the service for concurrent users in general;
+  capacity figures come only from the benchmarks.
+- `scripts/gen-api-keys.sh` needs `--users-file FILE` or `--count N`; there is
+  no default number of users any more.
+
 ## [0.1.0] - 2026-09-29
 
 First public version. Tested offline in CI. Also run on one GB10 (Lenovo

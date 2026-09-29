@@ -954,9 +954,12 @@ def cmd_gen_keys(args: argparse.Namespace) -> int:
         if not users:
             eprint("error: no user ids in {}".format(args.users_file))
             return EXIT_USAGE
-    else:
+    elif args.count:
         width = max(2, len(str(args.count)))
         users = ["{}{:0{}d}".format(args.prefix, i, width) for i in range(1, args.count + 1)]
+    else:
+        eprint("error: give --users-file FILE or --count N")
+        return EXIT_USAGE
     invalid = [u for u in users if not USER_ID_RE.match(u)]
     if invalid:
         eprint("error: invalid user ids (allowed: lowercase letters, digits, '.', '_', '-'; max 32): {}".format(invalid[:5]))
@@ -1079,7 +1082,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     keys = sub.add_parser("gen-keys", help="generate per-user API keys")
     keys.add_argument("--out-dir", required=True, help="directory for api-keys.map and api-keys.csv")
-    keys.add_argument("--count", type=positive_int, default=40, help="number of users (default: %(default)s)")
+    keys.add_argument("--count", type=positive_int, help="number of users with numbered ids")
     keys.add_argument("--prefix", default="user", help="user id prefix (default: %(default)s)")
     keys.add_argument("--users-file", help="file with one user id per line (overrides --count/--prefix)")
     keys.set_defaults(func=cmd_gen_keys)

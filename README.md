@@ -1,24 +1,24 @@
 # Codendum
 
 Shared, local infrastructure for coding agents. A single NVIDIA GB10 system
-(DGX Spark) runs [vLLM](https://docs.vllm.ai/) with a coding model, and about
-40 users run [OpenCode](https://opencode.ai/) on their own workstations against
-it. It works the same for a classroom or a company team: prompts and source code
+(DGX Spark) runs [vLLM](https://docs.vllm.ai/) with a coding model, and
+concurrent users run [OpenCode](https://opencode.ai/) on their own workstations
+against it. It works the same for a classroom or a company team: prompts and source code
 stay on the organization's network.
 
 The repository contains scripts, example configuration and documentation to
 install the service, secure it, test it, measure it and operate it.
 
 > **Status: 0.1.0, first release.** CI tests every script and configuration file
-> offline. The service has also run on one GB10 with 40 simulated OpenCode users
-> (see [Benchmarks](docs/benchmark.md#measured-on-a-gb10)). Treat those figures
+> offline. The service has also run on one GB10 with a simulated class of
+> concurrent OpenCode users (see [Benchmarks](docs/benchmark.md#measured-on-a-gb10)). Treat those figures
 > as a reference for this model and client version, not as a promise of
 > performance.
 
 ## How it works
 
 ```text
- Workstations (x40)                      GB10 host (DGX OS, ARM64)
+ User workstations                       GB10 host (DGX OS, ARM64)
  ┌──────────────────────────┐            ┌───────────────────────────────────────────┐
  │ OpenCode                 │  HTTPS     │ nginx container :8443                     │
  │ Git, JDK, Maven/Gradle,  │───────────▶│  network allowlist, per-user API key,     │
@@ -32,8 +32,8 @@ install the service, secure it, test it, measure it and operate it.
 
 - **The GB10 only serves inference.** Users' code, Git, the JDK and
   Maven/Gradle builds run on the workstations or in dedicated isolated
-  development environments. Do not run 40 Java builds on the model host: CPU and
-  GPU share the same memory.
+  development environments. Do not run users' builds on the model host: CPU
+  and GPU share the same memory.
 - **Every service runs in Docker.** vLLM listens on the loopback interface only,
   and an nginx container is the only way in. nginx accepts HTTPS on a dedicated
   port from the organization's LAN or VPN, checks a per-user API key and

@@ -11,7 +11,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
 usage() {
     cat <<'EOF'
-Usage: scripts/gen-api-keys.sh --out-dir DIR [--count N] [--prefix NAME | --users-file FILE]
+Usage: scripts/gen-api-keys.sh --out-dir DIR (--users-file FILE | --count N [--prefix NAME])
 
 Writes two files into DIR (created with mode 0700 if missing):
   api-keys.map   nginx map entries ("Bearer <key>" -> user id)
@@ -23,9 +23,9 @@ working tree (or ignored by Git).
 
 Options:
       --out-dir DIR      output directory (required)
-      --count N          number of users (default: 40)
-      --prefix NAME      user id prefix, ids become NAME01..NAMEnn (default: user)
-      --users-file FILE  one user id per line instead of --count/--prefix
+      --users-file FILE  one user id per line (lowercase letters, digits, '.', '_', '-')
+      --count N          number of users with numbered ids instead of a users file
+      --prefix NAME      prefix of the numbered ids, NAME01..NAMEnn (default: user)
   -h, --help             show this help
 EOF
 }

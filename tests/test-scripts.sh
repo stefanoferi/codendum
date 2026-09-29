@@ -299,6 +299,7 @@ check "users file ids used" grep -q '"alice";' "${TMP_ROOT}/keys3/api-keys.map"
 expect_exit 64 "missing users file is a usage error" scripts/gen-api-keys.sh --out-dir "${TMP_ROOT}/keys4" --users-file "${TMP_ROOT}/nope.txt"
 expect_output_lacks "no traceback" "Traceback"
 expect_exit 2 "zero count rejected" scripts/gen-api-keys.sh --out-dir "${TMP_ROOT}/keys5" --count 0
+expect_exit 64 "users file or count required" scripts/gen-api-keys.sh --out-dir "${TMP_ROOT}/keys6"
 git init -q "${TMP_ROOT}/repo"
 expect_exit 1 "refuses a non-ignored directory inside a Git working tree" scripts/gen-api-keys.sh --out-dir "${TMP_ROOT}/repo/keys-out" --count 2
 

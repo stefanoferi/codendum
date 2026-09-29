@@ -32,21 +32,22 @@ scripts/start-proxy.sh --init
 install -m 0600 fullchain.pem privkey.pem /etc/codendum/proxy/tls/
 ```
 
-**4. Generate one API key per user, locally.** Keys are 256-bit random values
-with the `cdm_` prefix. They are written with mode 0600, never overwrite
-existing files, and the script refuses to write them inside a Git working tree
-unless Git ignores the location:
+**4. Generate one API key per user, locally.** `users.txt` lists one user id
+per line, using lowercase letters, digits, `.`, `_` or `-`; `--count N` creates
+numbered ids instead. Keys are 256-bit random values with the `cdm_` prefix.
+They are written with mode 0600, never overwrite existing files, and the script
+refuses to write them inside a Git working tree unless Git ignores the
+location:
 
 ```bash
 KEYDIR="$HOME/codendum-keys/$(date -u +%Y%m%d)"
-scripts/gen-api-keys.sh --out-dir "$KEYDIR" --count 40
+scripts/gen-api-keys.sh --out-dir "$KEYDIR" --users-file users.txt
 install -m 0600 "$KEYDIR/api-keys.map" /etc/codendum/proxy/api-keys.map
 ```
 
 `api-keys.csv` in the same directory lists `user_id,api_key` pairs for
 distribution. Give each user their key through a private channel, then delete
-the CSV or store it in the organization's password manager. Use
-`--users-file names.txt` for your own user ids.
+the CSV or store it in the organization's password manager.
 
 - To **rotate** keys, generate a new directory, install the new map and reload
   the proxy.
