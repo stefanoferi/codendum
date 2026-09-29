@@ -435,10 +435,20 @@ sphinx==9.1.0 \
     #   furo
     #   myst-parser
     #   sphinx-basic-ng
+    #   sphinx-last-updated-by-git
+    #   sphinxext-opengraph
 sphinx-basic-ng==1.0.0b2 \
     --hash=sha256:9ec55a47c90c8c002b5960c57492ec3021f5193cb26cebc2dc4ea226848651c9 \
     --hash=sha256:eb09aedbabfb650607e9b4b68c9d240b90b1e1be221d6ad71d61c52e29f7932b
     # via furo
+sphinx-last-updated-by-git==0.3.8 \
+    --hash=sha256:6382c8285ac1f222483a58569b78c0371af5e55f7fbf9c01e5e8a72d6fdfa499 \
+    --hash=sha256:c145011f4609d841805b69a9300099fc02fed8f5bb9e5bcef77d97aea97b7761
+    # via sphinx-sitemap
+sphinx-sitemap==2.9.0 \
+    --hash=sha256:70f97bcdf444e3d68e118355cf82a1f54c4d3c03d651cd17fe87398b26e25e21 \
+    --hash=sha256:f1f1d3a9ad012ba17a7ef0b560d303bff2d0db26647567d6e810bcc754466664
+    # via -r docs/requirements.in
 sphinxcontrib-applehelp==2.0.0 \
     --hash=sha256:2f29ef331735ce958efa4734873f084941970894c6090408b079c61b2e1c06d1 \
     --hash=sha256:4cd3f0ec4ac5dd9c17ec65e9ab272c9b867ea77425228e68ecf08d6b28ddbdb5
@@ -463,6 +473,10 @@ sphinxcontrib-serializinghtml==2.0.0 \
     --hash=sha256:6e2cb0eef194e10c27ec0023bfeb25badbbb5868244cf5bc5bdc04e4464bf331 \
     --hash=sha256:e9d912827f872c029017a53f0ef2180b327c3f7fd23c87229f7a8e8b70031d4d
     # via sphinx
+sphinxext-opengraph==0.13.0 \
+    --hash=sha256:103335d08567ad8468faf1425f575e3b698e9621f9323949a6c8b96d9793e80b \
+    --hash=sha256:936c07828edc9ad9a7b07908b29596dc84ed0b3ceaa77acdf51282d232d4d80e
+    # via -r docs/requirements.in
 typing-extensions==4.16.0 \
     --hash=sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8 \
     --hash=sha256:dc983d19a509c94dba722ee6abd33940f7c05a89e243c47e907eb4db6f1a43e5

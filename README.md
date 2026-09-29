@@ -9,7 +9,7 @@ stay on the organization's network.
 The repository contains scripts, example configuration and documentation to
 install the service, secure it, test it, measure it and operate it.
 
-> **Status: 0.1.0, unreleased.** CI tests every script and configuration file
+> **Status: 0.1.0, first release.** CI tests every script and configuration file
 > offline. The service has also run on one GB10 with 40 simulated OpenCode users
 > (see [Benchmarks](docs/benchmark.md#measured-on-a-gb10)). Treat those figures
 > as a reference for this model and client version, not as a promise of
@@ -70,7 +70,8 @@ The [installation guide](docs/installation.md) and the
 
 ## Documentation
 
-The documentation in [`docs/`](docs/) is written in Markdown and built with
+The documentation is published at <https://stefanoferi.github.io/codendum/>.
+Its sources in [`docs/`](docs/) are Markdown files built with
 [Sphinx](https://www.sphinx-doc.org/) and
 [MyST](https://myst-parser.readthedocs.io/).
 

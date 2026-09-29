@@ -84,7 +84,9 @@ echo "# sphinx build"
 sphinx="${SPHINX_BUILD:-$(command -v sphinx-build || true)}"
 [[ -z "$sphinx" && -x .venv/bin/sphinx-build ]] && sphinx=.venv/bin/sphinx-build
 if [[ -n "$sphinx" ]]; then
-    check "docs build without warnings ($("$sphinx" --version))" "$sphinx" -W --keep-going -q -b html docs "${TMP_ROOT}/html"
+    # The sitemap extension opens a Unix socket in the temporary directory, which
+    # some shared or network file systems do not support: use the system default.
+    check "docs build without warnings ($("$sphinx" --version))" env -u TMPDIR "$sphinx" -W --keep-going -q -b html docs "${TMP_ROOT}/html"
 elif [[ "${CI:-}" == true ]]; then
     not_ok "sphinx-build is required in CI (pip install --require-hashes -r docs/requirements.txt)"
 else

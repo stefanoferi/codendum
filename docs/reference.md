@@ -11,7 +11,7 @@ own licenses and terms, which the operator must review and comply with.
 
 | Component | Pinned version | License | Where it runs |
 | --- | --- | --- | --- |
-| Codendum (this repository) | 0.1.0 (unreleased) | Apache-2.0 | GB10 host, workstations |
+| Codendum (this repository) | 0.1.0 | Apache-2.0 | GB10 host, workstations |
 | vLLM container image | `vllm/vllm-openai:v0.30.0@sha256:8a69ffad015f138d7170c4ddc429e230a3bc1c1719f67e14324749df200a4b90` (index; the linux/arm64 manifest is `sha256:4864d466…`), CUDA 13.0.2 | vLLM: Apache-2.0; the image bundles third-party software (for example the CUDA runtime and PyTorch) under their own licenses | GB10 host |
 | Model | `Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8` at revision `dcaee4d4dfc5ee71ad501f01f530e5652438fde0` | Apache-2.0, according to the model card; check the model's license file | GB10 host |
 | OpenCode | V2 (2.0.x); 1.x with the V1 example | MIT | Workstations |
