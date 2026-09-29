@@ -53,23 +53,25 @@ Why each setting matters:
   format. OpenCode V2 accepts them.
 
 A chat reply alone does not prove that the agent works. Verify a real
-read → edit → test loop in a scratch directory on a workstation with a JDK:
+read → edit → test loop in a scratch directory on a workstation. The example
+uses Python because it is available on most systems; the same check works in
+any language your users work with:
 
 ```bash
 mkdir -p /tmp/codendum-check && cd /tmp/codendum-check
-cat > Calc.java <<'EOF'
-public class Calc {
-    static int add(int a, int b) { return a - b; }
-    public static void main(String[] args) {
-        if (add(2, 3) != 5) throw new AssertionError("add(2, 3) should be 5");
-        System.out.println("OK");
-    }
-}
+cat > calc.py <<'EOF'
+def add(a, b):
+    return a - b
+
+
+if __name__ == "__main__":
+    assert add(2, 3) == 5, "add(2, 3) should be 5"
+    print("OK")
 EOF
-opencode run --auto --model codendum/coder "Run 'java Calc.java', fix the bug in Calc.java, then run it again until it prints OK."
-java Calc.java
+opencode run --auto --model codendum/coder "Run 'python3 calc.py', fix the bug in calc.py, then run it again until it prints OK."
+python3 calc.py
 ```
 
 The check passes when OpenCode has read the file, edited it with its tools and
-run the program, and the final `java Calc.java` prints `OK`. `--auto`
+run the program, and the final `python3 calc.py` prints `OK`. `--auto`
 auto-approves tool permissions; use it only in a scratch directory.

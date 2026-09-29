@@ -280,6 +280,11 @@ assert client["ttft_p95_s"] is not None and server["running_peak"] is not None, 
 ' "${CLASS_OUT}/summary.json"
 check "per-request and per-turn logs written" bash -c "[[ -s '${CLASS_OUT}/requests.jsonl' && \$(wc -l <'${CLASS_OUT}/turns.jsonl') -eq 8 ]]"
 check "tool calls were streamed and executed" bash -c "grep -q '\"finish_reason\": \"tool_calls\"' '${CLASS_OUT}/requests.jsonl'"
+expect_exit 0 "python scenario" clean_env scripts/bench-classroom.sh --base-url "http://127.0.0.1:${MOCK_PORT}" \
+    --users 2 --duration 2 --ramp-up 0.2 --grace 20 --think-time-min 0 --think-time-max 0.1 --tool-time-min 0 \
+    --tool-time-max 0.1 --max-turns 1 --scenario python --out-dir "${TMP_ROOT}/classroom-py" --yes
+check "python scenario recorded" python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["meta"]["scenario"] == "python" and d["client"]["turns_completed"] == 2, d' "${TMP_ROOT}/classroom-py/summary.json"
+expect_exit 2 "unknown scenario rejected" clean_env scripts/bench-classroom.sh --base-url "http://127.0.0.1:${MOCK_PORT}" --scenario cobol --yes
 expect_exit 2 "zero users rejected" clean_env scripts/bench-classroom.sh --base-url "http://127.0.0.1:${MOCK_PORT}" --users 0 --yes
 stop_mock
 

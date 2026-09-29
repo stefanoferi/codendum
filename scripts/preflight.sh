@@ -136,7 +136,7 @@ if [[ -r /proc/meminfo ]]; then
     if ((mem_avail_gib >= need_gib + 4)); then
         pass "Memory available: ${mem_avail_gib} GiB (vLLM will claim about ${need_gib} GiB at ${gpu_util})"
     else
-        warn "Memory available: ${mem_avail_gib} GiB, vLLM wants about ${need_gib} GiB at ${gpu_util}" "stop other GPU/CPU workloads (Java builds belong on the workstations). If vLLM still fails to start, NVIDIA documents flushing the page cache: sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches'"
+        warn "Memory available: ${mem_avail_gib} GiB, vLLM wants about ${need_gib} GiB at ${gpu_util}" "stop other GPU/CPU workloads (users' builds belong on the workstations). If vLLM still fails to start, NVIDIA documents flushing the page cache: sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches'"
     fi
 else
     warn "Memory: /proc/meminfo not readable"

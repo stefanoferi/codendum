@@ -2,7 +2,8 @@
 # Copyright 2026 Stefano Noferi
 """Classroom simulation: many users running OpenCode-like agent sessions.
 
-Each virtual user works on a small Java client-server project held in memory.
+Each virtual user works on a small client-server project held in memory, in
+one of the built-in scenarios (Java with Maven, or Python with pytest).
 The real model receives an agent system prompt, OpenCode-style tool
 definitions and a coding exercise. It calls tools (read, write, edit, bash,
 grep, ...), which this module executes against the in-memory project with
@@ -33,7 +34,7 @@ import codendum as core
 
 ROOT = "/home/student/chat-lab"
 
-PROJECT_FILES: Dict[str, str] = {
+JAVA_FILES: Dict[str, str] = {
     "pom.xml": """<project xmlns="http://maven.apache.org/POM/4.0.0">
   <modelVersion>4.0.0</modelVersion>
   <groupId>edu.lab</groupId>
@@ -230,7 +231,7 @@ class MessageTest {
 """,
 }
 
-TASKS = [
+JAVA_TASKS = [
     "The chat server does not deliver messages yet. Implement broadcast in ChatServer so that every other "
     "connected client receives each message, make the client list thread-safe, then run the tests.",
     "Add a /nick NAME command: a client can change its nickname. Validate the name (3-16 letters or digits) "
@@ -248,13 +249,142 @@ TASKS = [
     "in-memory streams.",
 ]
 
+PYTHON_FILES: Dict[str, str] = {
+    "pyproject.toml": """[project]
+name = "chat-lab"
+version = "0.1.0"
+requires-python = ">=3.11"
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+""",
+    "README.md": """# chat-lab
+
+A minimal multi-user chat used in the networking lab.
+
+- `chat/server.py` accepts TCP clients on port 5000 with asyncio.
+- `chat/client.py` connects, reads lines from standard input and prints what the server sends.
+- `chat/message.py` is the wire format: `SENDER|TIMESTAMP|TEXT`, one message per line.
+
+Run the tests with `python3 -m pytest -q`.
+""",
+    "chat/__init__.py": "",
+    "chat/message.py": '''"""Chat messages in the wire format SENDER|TIMESTAMP|TEXT."""
+
+from dataclasses import dataclass
+from datetime import datetime
+
+
+@dataclass(frozen=True)
+class Message:
+    sender: str
+    timestamp: datetime
+    text: str
+
+    @classmethod
+    def parse(cls, line: str) -> "Message":
+        sender, stamp, text = line.split("|", 2)
+        return cls(sender, datetime.fromisoformat(stamp), text)
+
+    def format(self) -> str:
+        return f"{self.sender}|{self.timestamp.isoformat()}|{self.text}"
+''',
+    "chat/server.py": '''"""Chat server: one asyncio task per connected client."""
+
+import asyncio
+from datetime import datetime, timezone
+
+from chat.message import Message
+
+
+class ChatServer:
+    def __init__(self, port: int = 5000) -> None:
+        self.port = port
+        self.clients: list[asyncio.StreamWriter] = []
+
+    async def handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        self.clients.append(writer)
+        nickname = "anonymous"
+        try:
+            while line := await reader.readline():
+                message = Message(nickname, datetime.now(timezone.utc), line.decode().rstrip("\\n"))
+                await self.broadcast(message, writer)
+        finally:
+            self.clients.remove(writer)
+            writer.close()
+
+    async def broadcast(self, message: Message, sender: asyncio.StreamWriter) -> None:
+        """Send a message to every other client. Not implemented yet."""
+        # TODO(lab): deliver the message to the other clients
+
+    async def serve(self) -> None:
+        server = await asyncio.start_server(self.handle, port=self.port)
+        async with server:
+            await server.serve_forever()
+
+
+if __name__ == "__main__":
+    asyncio.run(ChatServer().serve())
+''',
+    "chat/client.py": '''"""Console client: sends typed lines, prints received messages."""
+
+import asyncio
+import sys
+
+
+async def main(host: str = "localhost") -> None:
+    reader, writer = await asyncio.open_connection(host, 5000)
+    loop = asyncio.get_running_loop()
+    while line := await loop.run_in_executor(None, sys.stdin.readline):
+        writer.write(line.encode())
+        await writer.drain()
+        print((await reader.readline()).decode(), end="")
+
+
+if __name__ == "__main__":
+    asyncio.run(main(*sys.argv[1:]))
+''',
+    "tests/test_message.py": '''from datetime import datetime, timezone
+
+from chat.message import Message
+
+
+def test_round_trip():
+    message = Message("ada", datetime(2026, 1, 1, 10, tzinfo=timezone.utc), "hello | world")
+    parsed = Message.parse(message.format())
+    assert parsed.sender == "ada"
+    assert parsed.text == "hello | world"
+''',
+}
+
+PYTHON_TASKS = [
+    "The chat server does not deliver messages yet. Implement broadcast in chat/server.py so that every other "
+    "connected client receives each message, keep the client list consistent under concurrency, then run the "
+    "tests.",
+    "Add a /nick NAME command: a client can change its nickname. Validate the name (3-16 letters or digits) "
+    "and add pytest tests for the validation.",
+    "Add a /list command that returns the nicknames of the connected clients to the requesting client only. "
+    "Add a test.",
+    "Message.parse fails on malformed lines. Make it raise a clear ValueError for invalid input and add tests "
+    "for missing fields and bad timestamps.",
+    "Keep a chat history: the server appends every message to history.log and sends the last 20 lines to each "
+    "new client. Keep file access simple and safe.",
+    "The client waits for a server reply after each line. Read server messages in a separate asyncio task so "
+    "that incoming messages are printed while the user types.",
+    "Add a graceful shutdown to the server: on Ctrl-C close the listening socket and all client connections.",
+    "Write pytest tests for ChatServer.handle without real sockets, for example with in-memory streams.",
+]
+
 FOLLOW_UPS = [
     "Run the tests and fix any failure.",
-    "Review your change for thread-safety problems and fix them.",
+    "Review your change for concurrency problems and fix them.",
     "Add one more unit test for an edge case you have not covered.",
-    "Add Javadoc to the public methods you changed.",
+    "Add documentation comments to the public functions or methods you changed.",
     "Explain in three bullet points what you changed and why.",
-    "The teacher asks to keep methods short. Refactor the longest method you wrote.",
+    "The teacher asks to keep functions short. Refactor the longest one you wrote.",
 ]
 
 SYSTEM_PROMPT = """You are a coding agent that helps a student with a software project in their terminal.
@@ -276,7 +406,7 @@ SYSTEM_PROMPT = """You are a coding agent that helps a student with a software p
 # Environment
 Working directory: {root}
 Platform: linux
-Build tool: Maven (mvn), Java 21
+Build and test: {build}
 Is the directory a git repository: yes
 
 # Project files
@@ -344,15 +474,40 @@ TOOLS: List[Dict[str, Any]] = [
             "required": []}}},
 ]
 
-BUILD_COMMAND = re.compile(r"\b(mvn|mvnw|gradle|gradlew|javac|java|junit)\b")
+BUILD_COMMAND = re.compile(
+    r"\b(mvn|mvnw|gradle|gradlew|javac|java|junit|pytest|python3?|pip|uv|npm|npx|node|go|cargo|make|ctest)\b")
+
+SCENARIOS: Dict[str, Dict[str, Any]] = {
+    "java": {
+        "files": JAVA_FILES, "tasks": JAVA_TASKS, "build": "Maven (mvn -q test), Java 21",
+        "test_marker": "@Test", "source_suffix": ".java",
+        "fail": ("[INFO] Running edu.lab.chat.MessageTest\n"
+                 "[ERROR] Tests run: {tests}, Failures: 1, Errors: 0, Skipped: 0\n"
+                 "[ERROR] MessageTest.roundTrip:14 expected: <hello | world> but was: <hello >\n"
+                 "[ERROR] BUILD FAILURE"),
+        "pass": ("[INFO] Compiling {sources} source files with javac [debug release 21]\n"
+                 "[INFO] Tests run: {tests}, Failures: 0, Errors: 0, Skipped: 0\n"
+                 "[INFO] BUILD SUCCESS"),
+    },
+    "python": {
+        "files": PYTHON_FILES, "tasks": PYTHON_TASKS, "build": "python3 -m pytest -q, Python 3.12",
+        "test_marker": "def test_", "source_suffix": ".py",
+        "fail": ("F{dots}\n"
+                 "FAILED tests/test_message.py::test_round_trip - AssertionError: assert 'hello ' == 'hello | world'\n"
+                 "1 failed, {passed} passed in 0.21s"),
+        "pass": "{dots}\n{tests} passed in 0.18s",
+    },
+}
 MAX_TOOL_OUTPUT = 12000
 
 
 class Workspace:
     """In-memory project on which tool calls are executed."""
 
-    def __init__(self, rng: random.Random, tool_time: Tuple[float, float], fail_rate: float) -> None:
-        self.files = dict(PROJECT_FILES)
+    def __init__(self, rng: random.Random, tool_time: Tuple[float, float], fail_rate: float,
+                 scenario: str = "java") -> None:
+        self.scenario = SCENARIOS[scenario]
+        self.files = dict(self.scenario["files"])
         self.rng = rng
         self.tool_time = tool_time
         self.fail_rate = fail_rate
@@ -448,19 +603,13 @@ class Workspace:
         command = str(args.get("command") or "")
         if BUILD_COMMAND.search(command):
             seconds = self.rng.uniform(*self.tool_time)
-            java_files = [n for n in self.files if n.endswith(".java")]
-            tests = sum(self.files[n].count("@Test") for n in java_files if "/test/" in n)
+            sources = [n for n in self.files if n.endswith(self.scenario["source_suffix"])]
+            tests = max(1, sum(self.files[n].count(self.scenario["test_marker"]) for n in sources if "test" in n))
+            values = {"tests": tests, "sources": len(sources), "passed": tests - 1, "dots": "." * tests}
             if not self.failed_once and self.rng.random() < self.fail_rate:
                 self.failed_once = True
-                output = ("[INFO] Running edu.lab.chat.MessageTest\n"
-                          "[ERROR] Tests run: {0}, Failures: 1, Errors: 0, Skipped: 0\n"
-                          "[ERROR] MessageTest.roundTrip:14 expected: <hello | world> but was: <hello >\n"
-                          "[ERROR] BUILD FAILURE").format(max(tests, 1))
-                return output, seconds, True
-            output = ("[INFO] Compiling {} source files with javac [debug release 21]\n"
-                      "[INFO] Tests run: {}, Failures: 0, Errors: 0, Skipped: 0\n"
-                      "[INFO] BUILD SUCCESS").format(len(java_files), max(tests, 1))
-            return output, seconds, True
+                return self.scenario["fail"].format(**dict(values, dots="." * (tests - 1))), seconds, True
+            return self.scenario["pass"].format(**values), seconds, True
         if command.startswith(("ls", "find", "tree")):
             return "\n".join(sorted(self.files)), 0.2, True
         if command.startswith("cat "):
@@ -590,17 +739,23 @@ class Recorder:
         self.turn_log.close()
 
 
+def render_prompt(template: str, workspace: Workspace) -> str:
+    return (template.replace("{root}", ROOT).replace("{tree}", workspace.tree())
+            .replace("{build}", workspace.scenario["build"]))
+
+
 def run_student(index: int, args: Any, key: Tuple[str, str], prompt_def: Dict[str, Any],
                 recorder: Recorder, t0: float, stop_at: float, hard_stop: float) -> None:
     rng = random.Random(args.seed * 1000 + index)
     user_id, api_key = key
     client = core.Client(args.base_url, api_key or None, args.cacert, args.timeout)
     time.sleep(rng.uniform(0, args.ramp_up))
-    workspace = Workspace(rng, (args.tool_time_min, args.tool_time_max), args.test_fail_rate)
+    workspace = Workspace(rng, (args.tool_time_min, args.tool_time_max), args.test_fail_rate, args.scenario)
     tools = prompt_def["tools"]
-    prompt = (prompt_def["system"] or SYSTEM_PROMPT).replace("{root}", ROOT).replace("{tree}", workspace.tree())
+    prompt = render_prompt(prompt_def["system"] or SYSTEM_PROMPT, workspace)
     messages: List[dict] = [{"role": "system", "content": prompt}]
-    task = TASKS[index % len(TASKS)]
+    tasks = workspace.scenario["tasks"]
+    task = tasks[index % len(tasks)]
     requests_in_turn = [task] + rng.sample(FOLLOW_UPS, k=min(len(FOLLOW_UPS), args.max_turns - 1))
 
     def call_model(kind: str, turn: int, step: int, msgs: List[dict], tool_defs: List[dict]) -> Dict[str, Any]:
@@ -623,8 +778,7 @@ def run_student(index: int, args: Any, key: Tuple[str, str], prompt_def: Dict[st
             task_prompt = str(json.loads(call_args or "{}").get("prompt") or "Explore the project.")
         except ValueError:
             task_prompt = "Explore the project."
-        msgs = [{"role": "system", "content": definition.get("system") or SYSTEM_PROMPT.replace("{root}", ROOT)
-                 .replace("{tree}", workspace.tree())},
+        msgs = [{"role": "system", "content": render_prompt(definition.get("system") or SYSTEM_PROMPT, workspace)},
                 {"role": "user", "content": "You are a subagent spawned by another session.\n" + task_prompt}]
         sub_tools = definition.get("tools") or [t for t in TOOLS if t["function"]["name"] in ("read", "glob", "grep")]
         spent, steps = 0.0, 0
@@ -808,6 +962,7 @@ def run(args: Any) -> int:
         args.users, len(keys), args.ramp_up, args.duration))
     print("  behaviour  : think time {}-{} s, build/test time {}-{} s, up to {} steps per request, {} requests per user".format(
         args.think_time_min, args.think_time_max, args.tool_time_min, args.tool_time_max, args.max_steps, args.max_turns))
+    print("  scenario   : {} project".format(args.scenario))
     print("  prompt     : {}".format(args.prompt_file or "built-in OpenCode-like system prompt and tools"))
     if not args.yes:
         if not sys.stdin.isatty():
@@ -870,7 +1025,7 @@ def run(args: Any) -> int:
             "think_time_s": [args.think_time_min, args.think_time_max],
             "tool_time_s": [args.tool_time_min, args.tool_time_max], "max_steps": args.max_steps,
             "max_turns": args.max_turns, "max_output": args.max_output, "context_limit": args.context_limit,
-            "prompt_file": bool(args.prompt_file), "seed": args.seed}
+            "prompt_file": bool(args.prompt_file), "scenario": args.scenario, "seed": args.seed}
     with open(os.path.join(out_dir, "summary.json"), "w", encoding="utf-8") as handle:
         json.dump({"meta": meta, "client": summary, "server": server}, handle, indent=2)
     print_report(summary, server)

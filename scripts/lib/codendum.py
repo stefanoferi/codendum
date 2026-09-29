@@ -1063,6 +1063,8 @@ def build_parser() -> argparse.ArgumentParser:
     klass.add_argument("--tool-time-max", type=float, default=12.0, help="simulated build/test time, maximum s")
     klass.add_argument("--test-fail-rate", type=float, default=0.3,
                        help="probability that the first test run of a session fails (default: %(default)s)")
+    klass.add_argument("--scenario", choices=["java", "python"], default="java",
+                       help="built-in project the users work on (default: %(default)s)")
     klass.add_argument("--max-turns", type=positive_int, default=4, help="requests per user (default: %(default)s)")
     klass.add_argument("--max-steps", type=positive_int, default=40,
                        help="model calls per request, tool steps included (default: %(default)s)")

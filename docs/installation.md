@@ -20,9 +20,11 @@
 
 **Workstations**
 
-- OpenCode V2. OpenCode 1.x also works with the V1 example config.
-- The development tools for the course or project: Git, JDK, Maven or Gradle,
-  and so on.
+- OpenCode V2 on Linux, macOS or Windows, installed as described in the
+  OpenCode documentation. OpenCode 1.x also works with the V1 example config.
+- The development tools of the course or project, for any language or
+  platform: version control, compilers or interpreters, package managers, build
+  and test tools.
 
 Get the repository onto the GB10 host and run the read-only checks:
 

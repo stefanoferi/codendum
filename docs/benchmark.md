@@ -47,9 +47,12 @@ version, and present them as measurements, not guarantees.
 of students working with OpenCode behaves differently, and
 `scripts/bench-classroom.sh` simulates it:
 
-- Each simulated user (40 by default) works on a small Java client-server chat
-  project held in memory. It receives a lab exercise, then up to three
-  follow-up requests such as "run the tests and fix any failure".
+- Each simulated user (40 by default) works on a small client-server chat
+  project held in memory. Two built-in scenarios are available
+  (`--scenario java`, the default, with Maven and JUnit, or `--scenario python`
+  with pytest); the load depends on the model's work, not on the language.
+  Every user receives a lab exercise, then up to three follow-up requests such
+  as "run the tests and fix any failure".
 - The **real model** answers with an agent system prompt and OpenCode-style
   tools (`read`, `write`, `edit`, `bash`, `glob`, `grep`, `list`). It reads
   files, writes and edits code and runs builds and tests. The tools run against
@@ -128,8 +131,8 @@ The prompts grew from 6.8K to 11K tokens. With one or two users, time to first
 token was about 0.4 s and each user received about 31 output tokens per second.
 A coding request completed in 1.7–2.2 minutes.
 
-**40 simulated students.** The simulation used OpenCode 2.0.19's captured
-system prompt and tools. Each student made 4 requests, with 20–90 s pauses.
+**40 simulated students.** The simulation used the Java scenario, with
+OpenCode 2.0.19's captured system prompt and tools. Each student made 4 requests, with 20–90 s pauses.
 The window for new requests was 15 minutes, followed by the time needed to
 finish the requests in progress.
 

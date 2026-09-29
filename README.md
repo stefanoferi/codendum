@@ -21,7 +21,7 @@ install the service, secure it, test it, measure it and operate it.
  User workstations                       GB10 host (DGX OS, ARM64)
  ┌──────────────────────────┐            ┌───────────────────────────────────────────┐
  │ OpenCode                 │  HTTPS     │ nginx container :8443                     │
- │ Git, JDK, Maven/Gradle,  │───────────▶│  network allowlist, per-user API key,     │
+ │ Git, toolchains, IDEs,   │───────────▶│  network allowlist, per-user API key,     │
  │ builds and tests         │  /v1/...   │  per-user limits, only 2 endpoints        │
  └──────────────────────────┘  LAN/VPN   │        │                                  │
                                          │        ▼ 127.0.0.1:8000                   │
@@ -30,10 +30,11 @@ install the service, secure it, test it, measure it and operate it.
                                          └───────────────────────────────────────────┘
 ```
 
-- **The GB10 only serves inference.** Users' code, Git, the JDK and
-  Maven/Gradle builds run on the workstations or in dedicated isolated
-  development environments. Do not run users' builds on the model host: CPU
-  and GPU share the same memory.
+- **The GB10 only serves inference.** Users' code, version control, compilers,
+  interpreters, package managers, builds and tests run on the workstations or in
+  dedicated isolated development environments, whatever the language or
+  platform. Do not run users' builds on the model host: CPU and GPU share the
+  same memory.
 - **Every service runs in Docker.** vLLM listens on the loopback interface only,
   and an nginx container is the only way in. nginx accepts HTTPS on a dedicated
   port from the organization's LAN or VPN, checks a per-user API key and

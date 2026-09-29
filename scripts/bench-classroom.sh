@@ -14,10 +14,11 @@ usage() {
     cat <<'EOF'
 Usage: scripts/bench-classroom.sh [options]
 
-Each simulated user works on an in-memory Java client-server project: the
-model reads files, writes and edits code and runs (simulated) builds and
-tests through OpenCode-style tools, over several follow-up requests. Users
-start within the ramp-up period and pause between requests.
+Each simulated user works on an in-memory client-server project (Java or
+Python, see --scenario): the model reads files, writes and edits code and runs
+(simulated) builds and tests through OpenCode-style tools, over several
+follow-up requests. Users start within the ramp-up period and pause between
+requests.
 
 Run it from a workstation, through the proxy, to include the network path:
   scripts/bench-classroom.sh --base-url https://llm.lab.example:8443 \

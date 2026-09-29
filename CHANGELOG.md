@@ -14,6 +14,13 @@ Dates use ISO 8601 (YYYY-MM-DD).
   capacity figures come only from the benchmarks.
 - `scripts/gen-api-keys.sh` needs `--users-file FILE` or `--count N`; there is
   no default number of users any more.
+- The documentation is neutral about the language and platform users work
+  with. The OpenCode check uses a Python example.
+
+### Added
+
+- `scripts/bench-classroom.sh --scenario python`: a Python project with pytest,
+  next to the default Java scenario.
 
 ## [0.1.0] - 2026-09-29
 

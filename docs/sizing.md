@@ -53,7 +53,8 @@ and computes the request again later. That shows up as a latency spike and as
 is long still costs KV memory and prefill time, and a 60K-token prompt with no
 prefix-cache hits takes seconds to tens of seconds before the first token.
 
-**Work in small steps.** A professional client-server Java project is built
-module by module, with compilation, tests and human review after each step. It
+**Work in small steps.** A professional project, in any language and for any
+platform, is built module by module, with builds, tests and human review after
+each step. It
 is not produced by one huge generation. Short, focused requests are also what
 keeps a shared service responsive for everyone.
