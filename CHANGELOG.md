@@ -8,6 +8,8 @@ Dates use ISO 8601 (YYYY-MM-DD).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-01
+
 ### Changed
 
 - The documentation describes the service for concurrent users in general;
@@ -101,5 +103,6 @@ The results are in `docs/benchmark.md`.
   package, documentation checks and secret hygiene. Minimal permissions, and
   actions pinned by commit SHA with Dependabot updates.
 
-[Unreleased]: https://github.com/stefanoferi/codendum/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/stefanoferi/codendum/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/stefanoferi/codendum/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/stefanoferi/codendum/releases/tag/v0.1.0

@@ -10,7 +10,7 @@ Build locally:
 project = "Codendum"
 author = "Stefano Noferi"
 copyright = "2026, Stefano Noferi"
-release = "0.1.0"
+release = "0.1.1"
 
 extensions = ["myst_parser", "sphinx_sitemap", "sphinxext.opengraph"]
 source_suffix = {".md": "markdown"}
