@@ -288,6 +288,41 @@ expect_exit 2 "unknown scenario rejected" clean_env scripts/bench-classroom.sh -
 expect_exit 2 "zero users rejected" clean_env scripts/bench-classroom.sh --base-url "http://127.0.0.1:${MOCK_PORT}" --users 0 --yes
 stop_mock
 
+echo "# configure-opencode.sh"
+expect_exit 0 "help" scripts/configure-opencode.sh --help
+start_mock --require-key test-key-oc --max-model-len 131072
+OC="${TMP_ROOT}/opencode/opencode.json"
+mkdir -p "${TMP_ROOT}/opencode"
+printf '{"theme": "dark", "providers": {"other": {"name": "Other"}}}\n' >"$OC"
+expect_exit 1 "missing or wrong key rejected" env CODENDUM_API_KEY=wrong scripts/configure-opencode.sh \
+    --base-url "http://127.0.0.1:${MOCK_PORT}" --output "$OC"
+expect_exit 64 "no key on non-interactive input" env -u CODENDUM_API_KEY scripts/configure-opencode.sh \
+    --base-url "http://127.0.0.1:${MOCK_PORT}" --output "$OC" </dev/null
+expect_exit 0 "configures OpenCode from the server" env CODENDUM_API_KEY=test-key-oc scripts/configure-opencode.sh \
+    --base-url "http://127.0.0.1:${MOCK_PORT}/v1" --output "$OC"
+expect_output_lacks "key never printed" "test-key-oc"
+check "context from the server, settings kept, key not stored" python3 -c '
+import json, sys
+c = json.load(open(sys.argv[1]))
+m = c["providers"]["codendum"]["models"]["coder"]
+assert m["limit"] == {"context": 131072, "output": 8192}, m
+assert m["capabilities"]["tools"] is True
+assert c["providers"]["codendum"]["settings"]["baseURL"].endswith(":%s/v1" % sys.argv[2])
+assert c["theme"] == "dark" and "other" in c["providers"] and c["model"] == "codendum/coder"
+assert "test-key-oc" not in open(sys.argv[1]).read()
+' "$OC" "$MOCK_PORT"
+check "previous file backed up" bash -c "ls '${TMP_ROOT}/opencode/' | grep -q 'opencode.json.bak-'"
+expect_exit 1 "refuses to mix V1 into a V2 configuration" env CODENDUM_API_KEY=test-key-oc scripts/configure-opencode.sh \
+    --base-url "http://127.0.0.1:${MOCK_PORT}" --output "$OC" --format v1
+expect_exit 0 "V1 format, dry run" env CODENDUM_API_KEY=test-key-oc scripts/configure-opencode.sh \
+    --base-url "http://127.0.0.1:${MOCK_PORT}" --output "${TMP_ROOT}/opencode/v1.json" --format v1 --dry-run
+expect_output_contains "V1 keys" '"tool_call": true'
+check "dry run writes nothing" test ! -e "${TMP_ROOT}/opencode/v1.json"
+printf '{ // comment\n}\n' >"${TMP_ROOT}/opencode/jsonc.json"
+expect_exit 1 "JSON with comments is not overwritten" env CODENDUM_API_KEY=test-key-oc scripts/configure-opencode.sh \
+    --base-url "http://127.0.0.1:${MOCK_PORT}" --output "${TMP_ROOT}/opencode/jsonc.json"
+stop_mock
+
 echo "# gen-api-keys.sh"
 KEYS="${TMP_ROOT}/keys"
 expect_exit 0 "generates keys" scripts/gen-api-keys.sh --out-dir "$KEYS" --count 5

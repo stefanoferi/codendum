@@ -171,5 +171,46 @@ class OpenCodeConfigTests(unittest.TestCase):
         self.assertEqual(p1["models"]["coder"]["limit"], p2["models"]["coder"]["limit"])
 
 
+class OpenCodeGeneratorTests(unittest.TestCase):
+    """The generated provider must match the documented examples."""
+
+    root = os.path.join(os.path.dirname(__file__), "..")
+
+    def _example(self, name):
+        with open(os.path.join(self.root, "config", name), encoding="utf-8") as handle:
+            return json.load(handle)
+
+    def test_v2_matches_example(self):
+        example = self._example("opencode.example.json")
+        provider = codendum.opencode_provider("v2", "https://llm.lab.example:8443/v1", "coder", 65536, 8192)
+        expected = example["providers"]["codendum"]
+        self.assertEqual(provider["package"], expected["package"])
+        self.assertEqual(provider["settings"], expected["settings"])
+        self.assertEqual(provider["models"]["coder"]["capabilities"], expected["models"]["coder"]["capabilities"])
+        self.assertEqual(provider["models"]["coder"]["limit"], expected["models"]["coder"]["limit"])
+
+    def test_v1_matches_example(self):
+        example = self._example("opencode.v1.example.json")
+        provider = codendum.opencode_provider("v1", "https://llm.lab.example:8443/v1", "coder", 65536, 8192)
+        expected = example["provider"]["codendum"]
+        self.assertEqual(provider["npm"], expected["npm"])
+        self.assertEqual(provider["options"], expected["options"])
+        self.assertTrue(provider["models"]["coder"]["tool_call"])
+
+    def test_merge_keeps_other_settings(self):
+        existing = {"theme": "dark", "providers": {"other": {"name": "x"}}, "model": "other/m"}
+        merged = codendum.merge_opencode_config(
+            existing, "v2", codendum.opencode_provider("v2", "https://h/v1", "coder", 1024, 256), "coder", True)
+        self.assertEqual(merged["theme"], "dark")
+        self.assertIn("other", merged["providers"])
+        self.assertEqual(merged["model"], "codendum/coder")
+        self.assertEqual(existing["model"], "other/m")
+
+    def test_merge_refuses_mixed_formats(self):
+        existing = {"provider": {"codendum": {}}}
+        with self.assertRaises(ValueError):
+            codendum.merge_opencode_config(existing, "v2", {}, "coder", True)
+
+
 if __name__ == "__main__":
     unittest.main()

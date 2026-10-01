@@ -15,7 +15,8 @@
   coding requests than `classroom-64k`, with no preemption.
 - **`deep-128k`** is for a few users working on large contexts. Very long
   prefills are slow and memory-intensive, and every OpenCode client must switch
-  to 131072 at the same time.
+  to 131072 at the same time: run `scripts/configure-opencode.sh` again on the
+  workstations (see [OpenCode](opencode.md#automatic-configuration)).
 
 Switch profiles with a controlled restart:
 

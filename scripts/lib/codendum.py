@@ -9,6 +9,7 @@ Subcommands:
   bench     controlled load test at several concurrency levels
   gen-keys  generate per-user API keys for the nginx proxy
   classroom simulated class: users running OpenCode-like agent sessions
+  opencode-config  configure OpenCode on a workstation from the server's limits
 
 The shell scripts in scripts/ are thin wrappers around these subcommands.
 Standard library only; Python 3.8 or newer.
@@ -986,6 +987,147 @@ def cmd_gen_keys(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+# --------------------------------------------------------------------------
+# opencode-config
+# --------------------------------------------------------------------------
+
+PROVIDER_ID = "codendum"
+
+
+def opencode_provider(fmt: str, base_url: str, model_id: str, context: int, output: int) -> Dict[str, Any]:
+    """Provider block for OpenCode, in the native V2 format or the 1.x format."""
+    name = "Codendum (local)"
+    model_name = "{} (Codendum)".format(model_id)
+    limit = {"context": context, "output": output}
+    if fmt == "v1":
+        return {"npm": "@ai-sdk/openai-compatible", "name": name,
+                "options": {"baseURL": base_url, "apiKey": "{env:" + API_KEY_ENV + "}"},
+                "models": {model_id: {"name": model_name, "tool_call": True,
+                                      "modalities": {"input": ["text"], "output": ["text"]}, "limit": limit}}}
+    return {"name": name, "package": "@opencode/ai/providers/openai-compatible",
+            "settings": {"baseURL": base_url, "apiKey": "{env:" + API_KEY_ENV + "}"},
+            "models": {model_id: {"modelID": model_id, "name": model_name,
+                                  "capabilities": {"tools": True, "input": ["text"], "output": ["text"]},
+                                  "limit": limit}}}
+
+
+def merge_opencode_config(existing: Dict[str, Any], fmt: str, provider: Dict[str, Any], model_id: str,
+                          set_default: bool) -> Dict[str, Any]:
+    """Add or replace the Codendum provider, keeping every other setting."""
+    config = dict(existing)
+    config.setdefault("$schema", "https://opencode.ai/config.json")
+    key = "provider" if fmt == "v1" else "providers"
+    other = "providers" if fmt == "v1" else "provider"
+    if PROVIDER_ID in (config.get(other) or {}):
+        raise ValueError("the existing configuration defines '{}' in the {} format; use --format {}".format(
+            PROVIDER_ID, "V2" if other == "providers" else "1.x", "v2" if other == "providers" else "v1"))
+    providers = dict(config.get(key) or {})
+    providers[PROVIDER_ID] = provider
+    config[key] = providers
+    if set_default:
+        config["model"] = "{}/{}".format(PROVIDER_ID, model_id)
+    config.setdefault("share", "disabled")
+    return config
+
+
+def default_opencode_path() -> str:
+    return os.path.join(os.path.expanduser("~"), ".config", "opencode", "opencode.json")
+
+
+def cmd_opencode_config(args: argparse.Namespace) -> int:
+    base = args.base_url.rstrip("/")
+    if base.endswith("/v1"):
+        base = base[:-3]
+    key = api_key_from_env()
+    if not key:
+        if not sys.stdin.isatty():
+            eprint("error: set {} to your API key (it is never accepted as an argument)".format(API_KEY_ENV))
+            return EXIT_USAGE
+        import getpass
+        key = getpass.getpass("API key: ").strip()
+    client = Client(base, key, args.cacert, args.timeout)
+
+    try:
+        status, body, _ = client.call("GET", "/v1/models")
+    except (urllib.error.URLError, OSError) as exc:
+        eprint("error: cannot reach {}: {}".format(base, exc))
+        if args.cacert is None and "CERTIFICATE" in str(exc).upper():
+            eprint("hint: for a certificate from a private CA, pass --cacert /path/to/ca.pem")
+        return EXIT_FAIL
+    if status == 401:
+        eprint("error: the server rejected the API key (HTTP 401)")
+        return EXIT_FAIL
+    if status != 200:
+        eprint("error: GET /v1/models returned HTTP {}".format(status))
+        return EXIT_FAIL
+    listing = parse_json(body) or {}
+    models = [m for m in listing.get("data", []) if isinstance(m, dict) and m.get("id")]
+    if args.model:
+        models = [m for m in models if m["id"] == args.model]
+    if len(models) != 1:
+        eprint("error: expected one served model, found {}; choose with --model".format(
+            [m.get("id") for m in listing.get("data", [])]))
+        return EXIT_FAIL
+    model = models[0]
+    context = model.get("max_model_len")
+    if not isinstance(context, int) or context < 1024:
+        eprint("error: the server did not report max_model_len for {!r}".format(model["id"]))
+        return EXIT_FAIL
+    output = min(args.max_output, context // 4)
+
+    probe = {"model": model["id"], "messages": [{"role": "user", "content": "Reply with the single word: pong"}],
+             "max_tokens": 8}
+    status, body, elapsed = client.call("POST", "/v1/chat/completions", probe)
+    if status != 200:
+        eprint("error: test completion failed with HTTP {}".format(status))
+        return EXIT_FAIL
+
+    provider = opencode_provider(args.format, base + "/v1", model["id"], context, output)
+    path = args.output or default_opencode_path()
+    existing: Dict[str, Any] = {}
+    if os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as handle:
+                existing = json.load(handle)
+        except ValueError:
+            eprint("error: {} is not plain JSON (comments?); write elsewhere with --output".format(path))
+            return EXIT_FAIL
+        if not isinstance(existing, dict):
+            eprint("error: {} does not contain a JSON object".format(path))
+            return EXIT_FAIL
+    try:
+        config = merge_opencode_config(existing, args.format, provider, model["id"], not args.no_default)
+    except ValueError as exc:
+        eprint("error: {}".format(exc))
+        return EXIT_FAIL
+    text = json.dumps(config, indent=2) + "\n"
+
+    print("Server     : {}  model={}  context={} tokens  test reply in {:.2f} s".format(
+        base, model["id"], context, elapsed))
+    print("OpenCode   : {} format, limit.context={}, limit.output={}".format(args.format, context, output))
+    if args.dry_run:
+        print(text, end="")
+        return EXIT_OK
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    if existing:
+        backup = "{}.bak-{}".format(path, utc_now().replace(":", "").replace("-", ""))
+        shutil.copy2(path, backup)
+        print("Backup     : {}".format(backup))
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as handle:
+        handle.write(text)
+    os.replace(tmp, path)
+    print("Written    : {}".format(path))
+    print("Next steps :")
+    print("  - make {} available to OpenCode, for example in your shell profile;".format(API_KEY_ENV))
+    print("    OpenCode V2 runs a background service that only sees variables set when it starts")
+    if args.cacert:
+        print("  - export NODE_EXTRA_CA_CERTS={} so that OpenCode trusts the certificate".format(
+            os.path.abspath(args.cacert)))
+    print("  - run this command again whenever the server profile (context length) changes")
+    return EXIT_OK
+
+
 def cmd_classroom(args: argparse.Namespace) -> int:
     import classroom  # sibling module; imported lazily to keep the other commands light
 
@@ -1088,6 +1230,18 @@ def build_parser() -> argparse.ArgumentParser:
     keys.add_argument("--prefix", default="user", help="user id prefix (default: %(default)s)")
     keys.add_argument("--users-file", help="file with one user id per line (overrides --count/--prefix)")
     keys.set_defaults(func=cmd_gen_keys)
+
+    oc = sub.add_parser("opencode-config", help="configure OpenCode for this server (run on a workstation)")
+    oc.add_argument("--base-url", required=True, help="proxy URL, for example https://llm.lab.example:8443")
+    oc.add_argument("--cacert", help="CA bundle for a private TLS certificate")
+    oc.add_argument("--model", help="served model id (default: the only one served)")
+    oc.add_argument("--format", choices=["v2", "v1"], default="v2", help="OpenCode config format (default: v2)")
+    oc.add_argument("--max-output", type=positive_int, default=8192, help="limit.output (default: %(default)s)")
+    oc.add_argument("--output", help="config file to update (default: ~/.config/opencode/opencode.json)")
+    oc.add_argument("--no-default", action="store_true", help="do not make this model OpenCode's default")
+    oc.add_argument("--dry-run", action="store_true", help="print the resulting configuration only")
+    oc.add_argument("--timeout", type=float, default=60.0, help="request timeout in seconds")
+    oc.set_defaults(func=cmd_opencode_config)
     return parser
 
 

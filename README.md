@@ -69,7 +69,12 @@ Before `start-proxy.sh`, review `.env` and install three things:
 - per-user API keys from `scripts/gen-api-keys.sh`.
 
 The [installation guide](docs/installation.md) and the
-[proxy guide](docs/proxy.md) explain every step.
+[proxy guide](docs/proxy.md) explain every step. Then configure OpenCode on each
+workstation from the server's own limits:
+
+```bash
+scripts/configure-opencode.sh --base-url https://llm.lab.example:8443
+```
 
 ## Documentation
 

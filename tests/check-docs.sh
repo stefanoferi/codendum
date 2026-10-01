@@ -17,7 +17,7 @@ for f in README.md LICENSE NOTICE CONTRIBUTING.md SECURITY.md CODE_OF_CONDUCT.md
     config/opencode.example.json config/nginx.example.conf .github/workflows/ci.yml \
     .github/pull_request_template.md .github/dependabot.yml scripts/preflight.sh scripts/start-vllm.sh \
     scripts/start-proxy.sh scripts/smoke-test.sh scripts/metrics.sh scripts/bench.sh \
-    scripts/bench-classroom.sh; do
+    scripts/bench-classroom.sh scripts/configure-opencode.sh; do
     if [[ -s "$f" ]]; then ok "present: ${f}"; else not_ok "missing or empty: ${f}"; fi
 done
 

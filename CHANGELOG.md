@@ -19,6 +19,10 @@ Dates use ISO 8601 (YYYY-MM-DD).
 
 ### Added
 
+- `scripts/configure-opencode.sh` (and `codendum.py opencode-config` for
+  Windows): configures OpenCode on a workstation from the server's served model
+  and maximum context length. It runs a test completion, keeps the other
+  settings and backs up the previous file.
 - Project logo in the README and in the documentation site, with a favicon.
 - Governance page in the documentation, with a possible future integration
   with [Admina](https://admina.org/) for personal-data redaction, a

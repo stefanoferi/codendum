@@ -23,9 +23,9 @@ the workstations.
 
 | Path | Contents |
 | --- | --- |
-| `scripts/*.sh` | Operator scripts: preflight, start-vllm, start-proxy, smoke-test, metrics, bench, gen-api-keys |
+| `scripts/*.sh` | Operator scripts: preflight, start-vllm, start-proxy, smoke-test, metrics, bench, gen-api-keys; `configure-opencode.sh` runs on workstations (bash 3.2 compatible) |
 | `scripts/lib/common.sh` | Shared shell helpers: safe `.env` parsing, profiles, validation |
-| `scripts/lib/codendum.py` | Stdlib-only client: smoke, metrics, bench, gen-keys |
+| `scripts/lib/codendum.py` | Stdlib-only client: smoke, metrics, bench, gen-keys, classroom, opencode-config |
 | `config/profiles/*.env` | Serving profiles |
 | `config/*.example.*` | nginx and OpenCode examples (placeholders only) |
 | `tests/` | Offline suites; `mock_vllm.py` imitates the vLLM API |

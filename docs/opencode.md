@@ -2,7 +2,42 @@
 
 Install OpenCode V2 by following the
 [official instructions](https://opencode.ai/v2/docs/). On managed machines,
-prefer the organization's software distribution. Then configure the provider:
+prefer the organization's software distribution.
+
+## Automatic configuration
+
+`configure-opencode.sh` configures OpenCode on a workstation from the server
+itself:
+
+- it asks the server, through the proxy, which model it serves and its maximum
+  context length;
+- it checks a test completion with the user's key;
+- it adds the Codendum provider to the OpenCode configuration, keeping every
+  other setting and backing up the previous file.
+
+The key comes from `CODENDUM_API_KEY`, or is asked for without echoing, and is
+never written to a file. On Linux and macOS:
+
+```bash
+scripts/configure-opencode.sh --base-url https://llm.lab.example:8443
+```
+
+The command needs only Python 3, so on Windows you can run
+`py scripts\lib\codendum.py opencode-config --base-url https://llm.lab.example:8443`.
+
+| Option | Use |
+| --- | --- |
+| `--cacert ca.pem` | Certificate from a private CA |
+| `--format v1` | OpenCode 1.x configuration format |
+| `--output FILE` | Update a project `opencode.json` instead of the user's global file |
+| `--dry-run` | Print the resulting configuration without writing it |
+
+Run it again whenever the server switches profile. The context limit then
+follows the server, without manual edits on each workstation.
+
+## Manual configuration
+
+To configure the provider by hand:
 
 1. Copy [`config/opencode.example.json`](https://github.com/stefanoferi/codendum/blob/main/config/opencode.example.json) to
    `~/.config/opencode/opencode.json`, or to `opencode.json` in a project.
@@ -34,8 +69,9 @@ Why each setting matters:
   provider `vllm`: that id belongs to the built-in discovery plugin.
 - **`limit.context` must match the server's `max-model-len`.** OpenCode uses it
   to manage the size of a conversation, for example to decide when to compact
-  it. If it is larger than the server's limit, long sessions fail with HTTP 400. For the `deep-128k` profile, change
-  it to `131072` on every workstation at the same time as the server.
+  it. If it is larger than the server's limit, long sessions fail with HTTP 400.
+  The automatic configuration keeps the two aligned; by hand, change it to
+  `131072` on every workstation when the server switches to `deep-128k`.
 - **OpenCode V2 runs a background service,** which sees an environment variable
   only if the variable was set when the service started. Start OpenCode from a
   shell that exports `CODENDUM_API_KEY`, or follow the V2
