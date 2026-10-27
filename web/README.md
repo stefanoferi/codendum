@@ -5,8 +5,9 @@ A small panel for a classroom, hackathon, lab or office:
 - people register themselves and wait for approval;
 - the first administrator is created through a one-time setup link printed in
   the panel log; more administrators can be added later;
-- every approved person finds their API key, the OpenCode setup command and
-  the link to the chat on their own page;
+- every approved person finds on their own page how to install OpenCode, a
+  one-time command that sets it up for Codendum, the link to the chat, and
+  their API key;
 - administrators approve (one or all), block, unblock, delete, renew keys and
   grant the administrator role;
 - a status box shows whether vLLM is up, the running and waiting requests, KV
@@ -28,6 +29,32 @@ covered by `tests/test-web.sh`. Not yet included:
 Failed logins are limited: 5 per username and client address, and 30 per
 client address, in 10 minutes. The second limit is generous because a
 classroom often shares one address.
+
+## Workstation setup
+
+No repository copy and no Python are needed on workstations. The personal page
+shows the official OpenCode install commands and creates a setup command that
+works once, for 10 minutes:
+
+```bash
+curl -fsSk --pinnedpubkey 'sha256//…' https://HOST:8443/s/CODE | sh                            # macOS, Linux
+curl.exe -fsSk --pinnedpubkey 'sha256//…' https://HOST:8443/s/CODE.ps1 | Out-String | Invoke-Expression  # Windows
+```
+
+- `--pinnedpubkey` makes curl accept only the proxy's public key, so the script
+  cannot be replaced on the network even before the workstation trusts the
+  certificate (`-k` only skips the CA check). The panel computes the pin from
+  `CODENDUM_WEB_TLS_CHAIN` (default `/proxy/tls/fullchain.pem`) on every page.
+- The key is not in the URL: the script is generated when the code is used.
+- `setup-workstation.sh` and `setup-workstation.ps1` save the certificate and
+  the key in `~/.config/codendum/` (the key in a private file, read by OpenCode
+  through `{file:…}`), add the `codendum` provider and default model to the
+  OpenCode configuration after a backup, set `NODE_EXTRA_CA_CERTS` for the
+  OpenCode service and the shell, and send a test request.
+- `/ca.pem` serves the last certificate of the chain, for browsers.
+
+Tested with OpenCode 2.0.32 on macOS and with a simulated Linux workstation in
+`tests/test-web.sh`. The Windows script is not tested yet.
 
 ## Install on the GB10 host
 

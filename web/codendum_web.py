@@ -14,6 +14,9 @@ PROTOTYPE. Standard library only (http.server + sqlite3).
 - /auth/verify answers nginx auth_request, so that Open WebUI can trust the
   identity of the logged-in user (trusted e-mail header).
 - The status box reads vLLM /metrics and the proxy access log.
+- Workstation setup: the personal page creates a one-time command (10
+  minutes) that downloads setup-workstation.sh or .ps1 with the user's key,
+  pinned to the proxy's public key, so no repository copy is needed.
 
 Configuration (environment):
   CODENDUM_WEB_LISTEN       host:port to listen on (default 127.0.0.1:8090)
@@ -29,10 +32,14 @@ Configuration (environment):
   CODENDUM_WEB_CHAT_URL     Open WebUI URL shown to users (optional)
   In both URLs, {host} is replaced with the host name the browser used, so the
   panel needs no change when the host address changes.
+  CODENDUM_WEB_TLS_CHAIN    proxy certificate chain, read for the pin and /ca.pem
+                            (default /proxy/tls/fullchain.pem; the last certificate
+                            is served as the CA)
 """
 
 from __future__ import annotations
 
+import base64
 import datetime as dt
 import hashlib
 import hmac
@@ -43,11 +50,13 @@ import re
 import secrets
 import shlex
 import sqlite3
+import ssl
 import subprocess
 import sys
 import threading
 import time
 import urllib.parse
+import urllib.request
 from http import cookies
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Dict, List, Optional, Tuple
@@ -66,7 +75,11 @@ METRICS_URL = ENV("CODENDUM_WEB_METRICS_URL", "http://127.0.0.1:8000/metrics")
 ACCESS_LOG = ENV("CODENDUM_WEB_ACCESS_LOG", "")
 API_URL = ENV("CODENDUM_WEB_API_URL", "https://{host}:8443")
 CHAT_URL = ENV("CODENDUM_WEB_CHAT_URL", "")
-LOGO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "docs", "_static", "codendum-logo.png")
+TLS_CHAIN = ENV("CODENDUM_WEB_TLS_CHAIN", "/proxy/tls/fullchain.pem")
+HERE = os.path.dirname(os.path.abspath(__file__))
+LOGO = os.path.join(HERE, "..", "docs", "_static", "codendum-logo.png")
+SETUP_CODE_TTL = 600
+MODEL_RE = re.compile(r"^[A-Za-z0-9._:/-]{1,128}$")
 
 USERNAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{2,31}$")
 HOST_RE = re.compile(r"^(?:[A-Za-z0-9.-]{1,253}|\[[0-9A-Fa-f:.]{2,45}\])$")
@@ -110,6 +123,11 @@ CREATE TABLE IF NOT EXISTS sessions (
     user_id INTEGER NOT NULL,
     expires REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS setup_codes (
+    code TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    expires REAL NOT NULL
+);
 """)
 
 
@@ -135,6 +153,79 @@ def public_url(template: str, host: str) -> str:
     else:
         host = host.rsplit(":", 1)[0]
     return template.replace("{host}", host if HOST_RE.match(host) else "HOST")
+
+
+def read_chain() -> List[bytes]:
+    """DER certificates of the proxy chain, server first; empty if unreadable."""
+    try:
+        with open(TLS_CHAIN, encoding="ascii") as handle:
+            text = handle.read()
+    except OSError:
+        return []
+    blocks = re.findall(r"-----BEGIN CERTIFICATE-----[A-Za-z0-9+/=\s]+-----END CERTIFICATE-----", text)
+    return [ssl.PEM_cert_to_DER_cert(b) for b in blocks]
+
+
+def _der(data: bytes, i: int) -> Tuple[int, int, int]:
+    """One DER element at i: (tag, start of content, end of element)."""
+    tag, length = data[i], data[i + 1]
+    i += 2
+    if length & 0x80:
+        size = length & 0x7F
+        length = int.from_bytes(data[i:i + size], "big")
+        i += size
+    return tag, i, i + length
+
+
+def spki_pin(der: bytes) -> str:
+    """curl --pinnedpubkey value: sha256 of the certificate's SubjectPublicKeyInfo."""
+    _, cert, _ = _der(der, 0)
+    _, i, end = _der(der, cert)  # tbsCertificate
+    fields = []
+    while i < end:
+        tag, _, nxt = _der(der, i)
+        fields.append((tag, i, nxt))
+        i = nxt
+    if fields[0][0] == 0xA0:  # explicit version
+        fields = fields[1:]
+    _, start, stop = fields[5]  # serial, signature, issuer, validity, subject, SPKI
+    return "sha256//" + base64.b64encode(hashlib.sha256(der[start:stop]).digest()).decode()
+
+
+def served_model() -> Optional[Tuple[str, int]]:
+    """(model id, max_model_len) from vLLM, or None while it is not ready."""
+    url = METRICS_URL.rsplit("/metrics", 1)[0] + "/v1/models"
+    try:
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            data = json.loads(resp.read())["data"][0]
+    except Exception:
+        return None
+    if not MODEL_RE.match(str(data.get("id", ""))) or not isinstance(data.get("max_model_len"), int):
+        return None
+    return data["id"], data["max_model_len"]
+
+
+def workstation_script(kind: str, user: sqlite3.Row, base: str, chain: List[bytes], model: Tuple[str, int]) -> str:
+    model_id, context = model
+    provider = core.opencode_provider("v2", base + "/v1", model_id, context, min(8192, context // 4))
+    provider["settings"]["apiKey"] = "{file:~/.config/codendum/api-key}"
+    with open(os.path.join(HERE, "setup-workstation." + kind), encoding="utf-8") as handle:
+        text = handle.read()
+    values = {"BASE": base, "PIN": spki_pin(chain[0]), "MODEL": model_id, "KEY": user["api_key"],
+              "CA": ssl.DER_cert_to_PEM_cert(chain[-1]).strip(), "PROVIDER": json.dumps(provider, indent=2)}
+    for name, value in values.items():
+        text = text.replace("@@{}@@".format(name), value)
+    return text.replace("\r\n", "\n").replace("\n", "\r\n") if kind == "ps1" else text
+
+
+def take_setup_code(code: str) -> Optional[int]:
+    """User id of a valid setup code, which is used up."""
+    with DB_LOCK:
+        row = CONN.execute("SELECT user_id FROM setup_codes WHERE code = ? AND expires > ?",
+                           (code, time.time())).fetchone()
+        CONN.execute("DELETE FROM setup_codes WHERE code = ? OR expires <= ?", (code, time.time()))
+        CONN.commit()
+    return row["user_id"] if row else None
 
 
 def new_key() -> str:
@@ -287,6 +378,9 @@ th{color:var(--muted);font-weight:500}form.inline{display:inline}
 .stats{display:flex;gap:28px;flex-wrap:wrap}.stat b{display:block;font-size:24px}.stat span{color:var(--muted);font-size:13px}
 input{font:inherit;width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);margin:4px 0 12px}
 .narrow{max-width:380px;margin:60px auto}.muted{color:var(--muted)}.err{color:var(--warn)}
+h3{font-size:15px;margin:18px 0 6px}.steps{padding-left:20px}.steps li{margin:0 0 16px}.steps p{margin:8px 0 4px}
+.copy{display:flex;gap:8px;align-items:flex-start}.copy pre{flex:1;margin:0;white-space:pre-wrap;word-break:break-all}
+details{margin-top:8px}summary{cursor:pointer;color:var(--link)}
 """
 
 
@@ -298,7 +392,9 @@ def page(title: str, body: str, user: Optional[sqlite3.Row] = None) -> bytes:
     return ("<!doctype html><html lang=en><head><meta charset=utf-8>"
             "<meta name=viewport content='width=device-width,initial-scale=1'><title>{t} · Codendum</title>"
             "<style>{css}</style></head><body><header><img src='/logo.png' alt='Codendum'>{r}</header>"
-            "<main>{b}</main></body></html>").format(t=html.escape(title), css=CSS, r=right, b=body).encode()
+            "<main>{b}</main><script>function copy(id){{navigator.clipboard.writeText("
+            "document.getElementById(id).innerText)}}</script></body></html>").format(
+                t=html.escape(title), css=CSS, r=right, b=body).encode()
 
 
 def login_form(error: str = "", register: bool = False, setup: str = "") -> str:
@@ -324,17 +420,60 @@ def user_card(user: sqlite3.Row, host: str) -> str:
             html.escape(user["username"]))
     if user["status"] == "blocked":
         return '<div class="card"><h2>Account blocked</h2><p>Contact the administrator.</p></div>'
+    base = public_url(API_URL, host)
     chat = ('<p><a class="btn primary" href="{}">Open the chat</a></p>'.format(html.escape(public_url(CHAT_URL, host)))
             if CHAT_URL else "")
-    command = "export CODENDUM_API_KEY={}\nscripts/configure-opencode.sh --base-url {}".format(
-        user["api_key"], public_url(API_URL, host))
-    return ('<div class="card"><h2>Your access</h2>{chat}<p>API key for OpenCode:</p>'
-            '<span class="key" id="key">{key}</span>'
-            '<button onclick="navigator.clipboard.writeText(document.getElementById(\'key\').innerText)">Copy</button> '
+    chain = read_chain()
+    if not chain:
+        connect = ('<p>Ask the administrator: the panel cannot read the server certificate, so it cannot create '
+                   'the setup command.</p>')
+    else:
+        rows = query("SELECT code, expires FROM setup_codes WHERE user_id = ? AND expires > ? "
+                     "ORDER BY expires DESC LIMIT 1", (user["id"], time.time()))
+        if rows:
+            pin, url = spki_pin(chain[0]), "{}/s/{}".format(base, rows[0]["code"])
+            minutes = max(1, int((rows[0]["expires"] - time.time()) // 60))
+            connect = ('<p>macOS and Linux, in a terminal:</p>{sh}<p>Windows, in PowerShell:</p>{ps}'
+                       '<p class="muted">Works once, for {m} more minutes. It is personal: it contains your key.</p>'
+                       '<form method="post" action="/setup/new"><button>New command</button></form>').format(
+                sh=copyable("cmd-sh", "curl -fsSk --pinnedpubkey '{}' {} | sh".format(pin, url)),
+                ps=copyable("cmd-ps", "curl.exe -fsSk --pinnedpubkey '{}' {}.ps1 | Out-String | Invoke-Expression".format(
+                    pin, url)), m=minutes)
+        else:
+            connect = ('<p>Create a command to paste on your computer. It works once, for 10 minutes.</p>'
+                       '<form method="post" action="/setup/new"><button class="primary">Create the setup command'
+                       '</button></form>')
+    return ('<div class="card"><h2>Your access</h2>{chat}<h3>Set up OpenCode on your computer</h3><ol class="steps">'
+            '<li><b>Install OpenCode</b> (once).<p>macOS and Linux, in a terminal:</p>{inst_sh}'
+            '<p>Windows, in PowerShell:</p>{inst_ps}<p class="muted">Then open a new terminal window.</p></li>'
+            '<li><b>Connect OpenCode to Codendum.</b>{connect}</li>'
+            '<li><b>Start.</b> In your project folder run <code>opencode</code>: the model <code>codendum/…</code> is '
+            'already selected.</li></ol>'
+            '<details><summary>API key and certificate, for other tools</summary>'
+            '<span class="key" id="key">{key}</span><button onclick="copy(\'key\')">Copy</button> '
             '<form class="inline" method="post" action="/key/regenerate"><button>Regenerate</button></form>'
-            '<p>Configure OpenCode on your computer:</p><pre>{cmd}</pre>'
-            '<p class="muted">Keep the key private. Regenerating it disables the old one immediately.</p></div>').format(
-        chat=chat, key=html.escape(user["api_key"]), cmd=html.escape(command))
+            '<p>API: <code>{base}/v1</code> · certificate: <a href="/ca.pem">ca.pem</a></p>'
+            '<p class="muted">Keep the key private. Regenerating it disables the old one immediately; then run '
+            'step 2 again.</p></details></div>').format(
+        chat=chat, inst_sh=copyable("inst-sh", "curl -fsSL https://opencode.ai/v2/install | bash"),
+        inst_ps=copyable("inst-ps", WINDOWS_INSTALL), connect=connect, key=html.escape(user["api_key"]),
+        base=html.escape(base))
+
+
+# Official Windows zip (opencode.ai/v2/docs), unpacked per user and added to PATH.
+WINDOWS_INSTALL = """$d = "$env:LOCALAPPDATA\\Programs\\opencode"
+$a = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }
+curl.exe -fsSL -o "$env:TEMP\\opencode.zip" "https://opencode.ai/update/api/latest/cli/opencode/opencode-windows-$a.zip"
+Expand-Archive -Force "$env:TEMP\\opencode.zip" $d
+$bin = (Get-ChildItem -Recurse -Filter opencode.exe $d | Select-Object -First 1).DirectoryName
+$p = [Environment]::GetEnvironmentVariable('Path', 'User')
+if ("$p" -notlike "*$bin*") { [Environment]::SetEnvironmentVariable('Path', "$p;$bin", 'User') }
+$env:Path += ";$bin"; opencode --version"""
+
+
+def copyable(element_id: str, text: str) -> str:
+    return '<div class="copy"><pre id="{i}">{t}</pre><button onclick="copy(\'{i}\')">Copy</button></div>'.format(
+        i=element_id, t=html.escape(text))
 
 
 def admin_cards(me: int) -> str:
@@ -433,6 +572,28 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/logo.png":
             with open(LOGO, "rb") as handle:
                 self.send(200, handle.read(), "image/png", {"Cache-Control": "max-age=86400"})
+        elif path == "/ca.pem":
+            chain = read_chain()
+            if chain:
+                self.send(200, ssl.DER_cert_to_PEM_cert(chain[-1]).encode(), "application/x-pem-file",
+                          {"Content-Disposition": 'attachment; filename="codendum-ca.pem"'})
+            else:
+                self.send(404, b"no certificate\n", "text/plain")
+        elif re.match(r"^/s/[A-Za-z0-9_-]{16,64}(\.ps1)?$", path):
+            # One-time workstation setup script; the code is used up only when a script is served.
+            code, kind = (path[3:-4], "ps1") if path.endswith(".ps1") else (path[3:], "sh")
+            chain, model = read_chain(), served_model()
+            if not chain or not model:
+                self.send(503, b"The model server is not ready yet: try again in a minute.\n", "text/plain")
+                return
+            owner = take_setup_code(code)
+            rows = query("SELECT * FROM users WHERE id = ? AND status = 'active'", (owner,)) if owner else []
+            if not rows:
+                self.send(404, b"This setup command is not valid any more: create a new one on the panel.\n",
+                          "text/plain")
+                return
+            script = workstation_script(kind, rows[0], public_url(API_URL, self.headers.get("Host", "")), chain, model)
+            self.send(200, script.encode(), "text/plain; charset=utf-8", {"Cache-Control": "no-store"})
         elif path == "/login":
             self.send(200, page("Log in", login_form()))
         elif path == "/register":
@@ -508,6 +669,11 @@ class Handler(BaseHTTPRequestHandler):
             with FAILURES_LOCK:
                 FAILURES.pop((ip, username), None)
             self.redirect("/", self.session_cookie(rows[0]["id"]))
+        elif self.path == "/setup/new" and user and user["status"] == "active":
+            query("DELETE FROM setup_codes WHERE user_id = ? OR expires <= ?", (user["id"], time.time()))
+            query("INSERT INTO setup_codes VALUES (?, ?, ?)",
+                  (secrets.token_urlsafe(18), user["id"], time.time() + SETUP_CODE_TTL))
+            self.redirect("/")
         elif self.path == "/logout":
             jar = cookies.SimpleCookie(self.headers.get("Cookie", ""))
             if SESSION_COOKIE in jar:
