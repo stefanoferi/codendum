@@ -45,13 +45,16 @@ docker run -d --name codendum-web --restart unless-stopped --network host \
   -e CODENDUM_WEB_DB=/data/web.sqlite -e CODENDUM_WEB_MAP=/proxy/api-keys-web.map \
   -e CODENDUM_WEB_PROXY_CONTAINER=codendum-proxy \
   -e CODENDUM_WEB_ACCESS_LOG=/proxy/logs/codendum.access.log \
-  -e CODENDUM_WEB_API_URL=https://HOST:8443 -e CODENDUM_WEB_CHAT_URL=https://HOST/ \
+  -e CODENDUM_WEB_API_URL='https://{host}:8443' -e CODENDUM_WEB_CHAT_URL='https://{host}/' \
   python:3.12-slim@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f \
   python3 /codendum/web/codendum_web.py
 ```
 
-Replace `HOST` with the address the students use. Then create the
-administrator account with the setup link from the log:
+`{host}` stays as written: the panel fills it with the host name each browser
+used, so nothing changes when the host gets a new address. Drop
+`CODENDUM_WEB_CHAT_URL` if there is no Open WebUI. Then create the
+administrator account with the setup link from the log (replace `HOST` in it
+with the host address):
 
 ```bash
 docker logs codendum-web | grep setup=
@@ -61,6 +64,8 @@ The link works once. Until an administrator exists, a new link is printed at
 every start, and everyone else who registers waits for approval.
 
 - `patch-nginx.py` keeps a backup as `codendum.conf.bak`.
+- After a boot, the API answers 502 until vLLM has loaded the model (a minute
+  or two); the status box shows vLLM as down meanwhile.
 - The panel listens on `127.0.0.1:8090` only, so nginx is the only way in.
 - Mounting the Docker socket gives the panel control over Docker. This is
   acceptable on a dedicated host, but it is one of the points to revisit

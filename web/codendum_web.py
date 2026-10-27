@@ -25,8 +25,10 @@ Configuration (environment):
   CODENDUM_WEB_RELOAD_CMD   alternative: command run after the map changes
   CODENDUM_WEB_METRICS_URL  vLLM metrics (default http://127.0.0.1:8000/metrics)
   CODENDUM_WEB_ACCESS_LOG   proxy access log (optional)
-  CODENDUM_WEB_API_URL      public proxy URL shown to users
+  CODENDUM_WEB_API_URL      public proxy URL shown to users (default https://{host}:8443)
   CODENDUM_WEB_CHAT_URL     Open WebUI URL shown to users (optional)
+  In both URLs, {host} is replaced with the host name the browser used, so the
+  panel needs no change when the host address changes.
 """
 
 from __future__ import annotations
@@ -62,11 +64,12 @@ PROXY_CONTAINER = ENV("CODENDUM_WEB_PROXY_CONTAINER", "")
 DOCKER_SOCKET = ENV("CODENDUM_WEB_DOCKER_SOCKET", "/var/run/docker.sock")
 METRICS_URL = ENV("CODENDUM_WEB_METRICS_URL", "http://127.0.0.1:8000/metrics")
 ACCESS_LOG = ENV("CODENDUM_WEB_ACCESS_LOG", "")
-API_URL = ENV("CODENDUM_WEB_API_URL", "https://llm.lab.example:8443")
+API_URL = ENV("CODENDUM_WEB_API_URL", "https://{host}:8443")
 CHAT_URL = ENV("CODENDUM_WEB_CHAT_URL", "")
 LOGO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "docs", "_static", "codendum-logo.png")
 
 USERNAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{2,31}$")
+HOST_RE = re.compile(r"^(?:[A-Za-z0-9.-]{1,253}|\[[0-9A-Fa-f:.]{2,45}\])$")
 SESSION_COOKIE = "codendum_session"
 SESSION_TTL = 12 * 3600
 DB_LOCK = threading.Lock()
@@ -123,6 +126,15 @@ def hash_password(password: str, salt: Optional[bytes] = None) -> str:
 def check_password(password: str, stored: str) -> bool:
     _, salt, digest = stored.split("$")
     return hmac.compare_digest(hash_password(password, bytes.fromhex(salt)).split("$")[2], digest)
+
+
+def public_url(template: str, host: str) -> str:
+    """Fill {host} with the host name from the request (nginx passes $host)."""
+    if host.startswith("["):
+        host = host.split("]")[0] + "]"
+    else:
+        host = host.rsplit(":", 1)[0]
+    return template.replace("{host}", host if HOST_RE.match(host) else "HOST")
 
 
 def new_key() -> str:
@@ -297,16 +309,17 @@ def login_form(error: str = "", register: bool = False, setup: str = "") -> str:
         label=label, err=err, action=action, extra=extra, switch=switch)
 
 
-def user_card(user: sqlite3.Row) -> str:
+def user_card(user: sqlite3.Row, host: str) -> str:
     if user["status"] == "pending":
         return ('<div class="card"><h2>Waiting for approval</h2><p>Your account <b>{}</b> was created. '
                 'An administrator will approve it shortly; reload this page then.</p></div>').format(
             html.escape(user["username"]))
     if user["status"] == "blocked":
         return '<div class="card"><h2>Account blocked</h2><p>Contact the administrator.</p></div>'
-    chat = ('<p><a class="btn primary" href="{}">Open the chat</a></p>'.format(html.escape(CHAT_URL))
+    chat = ('<p><a class="btn primary" href="{}">Open the chat</a></p>'.format(html.escape(public_url(CHAT_URL, host)))
             if CHAT_URL else "")
-    command = "export CODENDUM_API_KEY={}\nscripts/configure-opencode.sh --base-url {}".format(user["api_key"], API_URL)
+    command = "export CODENDUM_API_KEY={}\nscripts/configure-opencode.sh --base-url {}".format(
+        user["api_key"], public_url(API_URL, host))
     return ('<div class="card"><h2>Your access</h2>{chat}<p>API key for OpenCode:</p>'
             '<span class="key" id="key">{key}</span>'
             '<button onclick="navigator.clipboard.writeText(document.getElementById(\'key\').innerText)">Copy</button> '
@@ -433,7 +446,7 @@ class Handler(BaseHTTPRequestHandler):
             if not user:
                 self.redirect("/login")
                 return
-            body = user_card(user)
+            body = user_card(user, self.headers.get("Host", ""))
             if user["role"] == "admin" and user["status"] == "active":
                 body += admin_cards(user["id"])
             self.send(200, page("Home", body, user))
@@ -542,7 +555,8 @@ def main() -> None:
         # Only readable from the container log. A new link is printed on every
         # start until an administrator exists.
         SETUP_TOKEN = secrets.token_urlsafe(24)
-        print("No administrator yet. Create one at {}/register?setup={}".format(API_URL, SETUP_TOKEN), flush=True)
+        print("No administrator yet. Create one at {}/register?setup={}".format(
+            public_url(API_URL, "HOST"), SETUP_TOKEN), flush=True)
     server.serve_forever()
 
 

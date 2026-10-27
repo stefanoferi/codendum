@@ -76,6 +76,7 @@ if [[ "$(code_of -d "username=intruder&email=i@example.org&password=password123&
 check "admin approves everyone" "${C[@]}" -o /dev/null -b "$A" -X POST "${URL}/admin/approve-all"
 KEY="$("${C[@]}" -b "$S" "${URL}/" | grep -oE 'cdm_[0-9a-f]{64}' | head -1)"
 if [[ -n "$KEY" ]]; then ok "student sees an API key"; else not_ok "student sees an API key"; fi
+if page_of "$S" | grep -q -- '--base-url https://localhost:8443'; then ok "OpenCode command uses the host name the browser used"; else not_ok "OpenCode command uses the host name the browser used"; fi
 sleep 1
 got="$("${C[@]}" -o /dev/null -w '%{http_code}' -H "Authorization: Bearer ${KEY}" "${URL}/v1/models")"
 if [[ "$got" == 200 ]]; then ok "the new key works on the API at once (proxy reloaded)"; else not_ok "the new key works on the API (got ${got})" "$(docker logs "$WEB" 2>&1 | tail -5)"; fi
