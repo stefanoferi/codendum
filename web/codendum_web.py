@@ -268,9 +268,12 @@ CSS = """
 a{color:var(--link);text-decoration:underline;text-underline-offset:2px}a.btn{text-decoration:none}
 /* The logo is blue on transparent: keep the header light in both themes. */
 header{display:flex;align-items:center;justify-content:space-between;padding:14px 24px;background:#fff;color:#1d2433;
-border-bottom:3px solid var(--brand)}
+border-bottom:3px solid var(--brand);box-shadow:0 2px 10px rgba(16,24,40,.18)}
+.wide{display:block;width:100%;text-align:center;padding:9px 12px}
+.switch{margin-top:18px;padding-top:14px;border-top:1px solid var(--line)}.switch p{margin:0 0 8px;color:var(--ink)}
+a.btn.wide{color:var(--link);border:2px solid var(--link);font-weight:600}
 header button{background:#fff;color:#1d2433;border-color:#d0d5dd}header .muted{color:#475467}
-header img{height:34px}main{max-width:980px;margin:24px auto;padding:0 16px;display:grid;gap:18px}
+header img{height:40px}main{max-width:980px;margin:24px auto;padding:0 16px;display:grid;gap:18px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
 h2{font-size:16px;margin:0 0 12px}code,.key{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}
 .key{display:block;padding:10px;border:1px dashed var(--line);border-radius:8px;word-break:break-all;margin:8px 0}
@@ -304,13 +307,13 @@ def login_form(error: str = "", register: bool = False, setup: str = "") -> str:
     if register and setup:
         label = "Create the administrator account"
         extra += '<input type=hidden name=setup value="{}">'.format(html.escape(setup))
-    switch = ('Already registered? <a href="/login">Log in</a>' if register
-              else 'No account yet? <a href="/register">Register</a>')
+    switch = ('<p>Already registered?</p><a class="btn wide" href="/login">Log in</a>' if register
+              else '<p>No account yet?</p><a class="btn wide" href="/register">Register</a>')
     err = '<p class="err">{}</p>'.format(html.escape(error)) if error else ""
     return ('<div class="card narrow"><h2>{label}</h2>{err}<form method="post" action="{action}">'
             '<label>Username<input name=username required autocomplete=username></label>{extra}'
             '<label>Password<input name=password type=password required minlength=8></label>'
-            '<button class="primary">{label}</button></form><p class="muted">{switch}</p></div>').format(
+            '<button class="primary wide">{label}</button></form><div class="switch">{switch}</div></div>').format(
         label=label, err=err, action=action, extra=extra, switch=switch)
 
 
