@@ -445,7 +445,8 @@ def user_card(user: sqlite3.Row, host: str) -> str:
     if user["status"] == "blocked":
         return '<div class="card"><h2>Account blocked</h2><p>Contact the administrator.</p></div>'
     base = public_url(API_URL, host)
-    chat = ('<p><a class="btn primary" href="{}">Open the chat</a></p>'.format(html.escape(public_url(CHAT_URL, host)))
+    chat = ('<p><a class="btn primary" href="{}" target="_blank" rel="noopener">Open the chat</a></p>'.format(
+        html.escape(public_url(CHAT_URL, host)))
             if CHAT_URL else "")
     chain = read_chain()
     if not chain:
@@ -628,7 +629,7 @@ class Handler(BaseHTTPRequestHandler):
             # For nginx auth_request in front of Open WebUI (trusted header login).
             if user and user["status"] == "active":
                 self.send(200, b"", "text/plain", {"X-Codendum-User": user["username"],
-                                                   "X-Codendum-Email": user["email"]})
+                                                   "X-Codendum-Email": user["email"].lower()})
             else:
                 self.send(401, b"", "text/plain")
         elif self.path == "/api/status":

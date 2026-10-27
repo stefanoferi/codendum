@@ -55,7 +55,7 @@ check "panel container starts" docker run -d --name "$WEB" --network host \
     -e CODENDUM_WEB_LISTEN="127.0.0.1:${WEB_PORT}" -e CODENDUM_WEB_DB=/data/web.sqlite \
     -e CODENDUM_WEB_MAP=/proxy/api-keys-web.map -e CODENDUM_WEB_PROXY_CONTAINER="$PROXY" \
     -e CODENDUM_WEB_METRICS_URL="http://127.0.0.1:${MOCK_PORT}/metrics" \
-    -e CODENDUM_WEB_API_URL="https://{host}:${HTTPS_PORT}" \
+    -e CODENDUM_WEB_API_URL="https://{host}:${HTTPS_PORT}" -e CODENDUM_WEB_CHAT_URL="https://{host}:8444/" \
     "$PY_IMAGE" python3 /codendum/web/codendum_web.py
 for _ in $(seq 1 100); do curl -s -o /dev/null "http://127.0.0.1:${WEB_PORT}/login" && break; sleep 0.1; done
 
@@ -141,6 +141,13 @@ PIN="$(grep -oE 'sha256//[A-Za-z0-9+/=]+' <<<"$CMD")"
 if curl -fsSk --noproxy '*' --pinnedpubkey "$PIN" -o /dev/null "${URL}/ca.pem" &&
     ! curl -fsSk --noproxy '*' --pinnedpubkey 'sha256//AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=' -o /dev/null "${URL}/ca.pem" 2>/dev/null; then
     ok "pin matches the proxy key, a different key is refused"; else not_ok "pin matches the proxy key, a different key is refused"; fi
+
+echo "# single sign-on for Open WebUI"
+if "${C[@]}" -o /dev/null -D - -b "$S" "${URL}/auth/verify" | grep -qi '^x-codendum-email: s@example.org'; then
+    ok "/auth/verify gives the e-mail of an approved user"; else not_ok "/auth/verify gives the e-mail of an approved user"; fi
+if [[ "$(code_of "${URL}/auth/verify")" == 401 ]]; then ok "/auth/verify refuses without a session"; else not_ok "/auth/verify refuses without a session"; fi
+if page_of "$S" | grep -q 'href="https://localhost:8444/" target="_blank" rel="noopener">Open the chat'; then
+    ok "chat link uses the browser host and opens in a new tab"; else not_ok "chat link uses the browser host and opens in a new tab"; fi
 
 echo "# block"
 SID="$(docker exec "$WEB" python3 -c "import sqlite3; print(sqlite3.connect('/data/web.sqlite').execute(\"select id from users where username='s@example.org'\").fetchone()[0])")"
