@@ -261,10 +261,15 @@ def service_status() -> Dict[str, Any]:
 
 CSS = """
 :root{--bg:#f6f7fb;--card:#fff;--ink:#1d2433;--muted:#667085;--line:#e4e7ec;--brand:#3155d0;
---ok:#12a87a;--warn:#e6622f;--pend:#b98900}
-@media (prefers-color-scheme:dark){:root{--bg:#0f1420;--card:#171d2b;--ink:#e8ecf4;--muted:#98a2b3;--line:#273044}}
+--link:#1d3a9e;--ok:#12a87a;--warn:#e6622f;--pend:#b98900}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1420;--card:#171d2b;--ink:#e8ecf4;--muted:#98a2b3;--line:#273044;
+--link:#a9bfff}}
 *{box-sizing:border-box}body{margin:0;font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--ink)}
-header{display:flex;align-items:center;justify-content:space-between;padding:14px 24px;background:var(--card);border-bottom:1px solid var(--line)}
+a{color:var(--link);text-decoration:underline;text-underline-offset:2px}a.btn{text-decoration:none}
+/* The logo is blue on transparent: keep the header light in both themes. */
+header{display:flex;align-items:center;justify-content:space-between;padding:14px 24px;background:#fff;color:#1d2433;
+border-bottom:3px solid var(--brand)}
+header button{background:#fff;color:#1d2433;border-color:#d0d5dd}header .muted{color:#475467}
 header img{height:34px}main{max-width:980px;margin:24px auto;padding:0 16px;display:grid;gap:18px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
 h2{font-size:16px;margin:0 0 12px}code,.key{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}
@@ -285,8 +290,8 @@ input{font:inherit;width:100%;padding:8px 10px;border:1px solid var(--line);bord
 def page(title: str, body: str, user: Optional[sqlite3.Row] = None) -> bytes:
     right = ""
     if user:
-        right = ('<span class="muted">{}</span> <form class="inline" method="post" action="/logout">'
-                 '<button>Log out</button></form>').format(html.escape(user["username"]))
+        right = ('<div><span class="muted">{}</span> <form class="inline" method="post" action="/logout">'
+                 '<button>Log out</button></form></div>').format(html.escape(user["username"]))
     return ("<!doctype html><html lang=en><head><meta charset=utf-8>"
             "<meta name=viewport content='width=device-width,initial-scale=1'><title>{t} · Codendum</title>"
             "<style>{css}</style></head><body><header><img src='/logo.png' alt='Codendum'>{r}</header>"
