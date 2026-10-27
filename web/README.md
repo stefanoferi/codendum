@@ -3,8 +3,8 @@
 A small panel for a classroom, hackathon, lab or office:
 
 - people register themselves and wait for approval;
-- the first account becomes the administrator; more administrators can be
-  added later;
+- the first administrator is created through a one-time setup link printed in
+  the panel log; more administrators can be added later;
 - every approved person finds their API key, the OpenCode setup command and
   the link to the chat on their own page;
 - administrators approve (one or all), block, unblock, delete, renew keys and
@@ -23,8 +23,11 @@ covered by `tests/test-web.sh`. Not yet included:
 - login to Open WebUI through Codendum (`/auth/verify` is ready for nginx
   `auth_request`, but it is not wired up yet);
 - protection against cross-site request forgery beyond `SameSite=Strict`
-  cookies;
-- rate limiting of login attempts.
+  cookies.
+
+Failed logins are limited: 5 per username and client address, and 30 per
+client address, in 10 minutes. The second limit is generous because a
+classroom often shares one address.
 
 ## Install on the GB10 host
 
@@ -47,9 +50,15 @@ docker run -d --name codendum-web --restart unless-stopped --network host \
   python3 /codendum/web/codendum_web.py
 ```
 
-Replace `HOST` with the address the students use. Then open `https://HOST:8443/`
-and **register your own account first**: the first account becomes the
-administrator.
+Replace `HOST` with the address the students use. Then create the
+administrator account with the setup link from the log:
+
+```bash
+docker logs codendum-web | grep setup=
+```
+
+The link works once. Until an administrator exists, a new link is printed at
+every start, and everyone else who registers waits for approval.
 
 - `patch-nginx.py` keeps a backup as `codendum.conf.bak`.
 - The panel listens on `127.0.0.1:8090` only, so nginx is the only way in.

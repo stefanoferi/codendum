@@ -5,7 +5,9 @@
 # End-to-end test of the web panel prototype, all in Docker: the nginx proxy
 # container (start-proxy.sh) publishes the panel, the panel runs in a stock
 # Python container with the Docker socket, and tests/mock_vllm.py stands in
-# for vLLM. A user registers, is approved, uses the API key, and is blocked.
+# for vLLM. The administrator registers through the one-time setup link; a
+# user registers, is approved, uses the API key, and is blocked; repeated
+# failed logins are refused.
 
 # shellcheck source=tests/lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -63,9 +65,14 @@ A="${TMP_ROOT}/admin.jar"
 S="${TMP_ROOT}/student.jar"
 
 echo "# registration and approval through the proxy"
-check "admin registers (first account)" "${C[@]}" -o /dev/null -c "$A" -d "username=teacher&email=t@example.org&password=password123" "${URL}/register"
-check "student registers" "${C[@]}" -o /dev/null -c "$S" -d "username=student1&email=s@example.org&password=password123" "${URL}/register"
-if page_of "$S" | grep -q 'Waiting for approval'; then ok "student waits for approval"; else not_ok "student waits for approval"; fi
+SETUP="$(docker logs "$WEB" 2>&1 | grep -oE 'register\?setup=[A-Za-z0-9_-]+' | head -1 | cut -d= -f2)"
+if [[ -n "$SETUP" ]]; then ok "panel logs a one-time setup link"; else not_ok "panel logs a one-time setup link"; fi
+check "student registers before any administrator" "${C[@]}" -o /dev/null -c "$S" -d "username=student1&email=s@example.org&password=password123" "${URL}/register"
+if page_of "$S" | grep -q 'Waiting for approval'; then ok "student waits for approval, does not become admin"; else not_ok "student waits for approval, does not become admin"; fi
+check "admin registers with the setup link" "${C[@]}" -o /dev/null -c "$A" -d "username=teacher&email=t@example.org&password=password123&setup=${SETUP}" "${URL}/register"
+if page_of "$A" | grep -q 'Approve all'; then ok "setup account is the administrator"; else not_ok "setup account is the administrator"; fi
+if [[ "$(code_of -d "username=intruder&email=i@example.org&password=password123&setup=${SETUP}" "${URL}/register")" == 400 ]]; then
+    ok "setup link works only once"; else not_ok "setup link works only once"; fi
 check "admin approves everyone" "${C[@]}" -o /dev/null -b "$A" -X POST "${URL}/admin/approve-all"
 KEY="$("${C[@]}" -b "$S" "${URL}/" | grep -oE 'cdm_[0-9a-f]{64}' | head -1)"
 if [[ -n "$KEY" ]]; then ok "student sees an API key"; else not_ok "student sees an API key"; fi
@@ -83,5 +90,12 @@ check "admin blocks the student" "${C[@]}" -o /dev/null -b "$A" -X POST "${URL}/
 sleep 1
 got="$("${C[@]}" -o /dev/null -w '%{http_code}' -H "Authorization: Bearer ${KEY}" "${URL}/v1/models")"
 if [[ "$got" == 401 ]]; then ok "blocked key is rejected"; else not_ok "blocked key is rejected (got ${got})"; fi
+
+echo "# login rate limit"
+for _ in 1 2 3 4 5; do code_of -d "username=student1&password=wrong-password" "${URL}/login" >/dev/null; done
+if [[ "$(code_of -d "username=student1&password=password123" "${URL}/login")" == 429 ]]; then
+    ok "login refused after 5 failures, even with the right password"; else not_ok "login refused after 5 failures"; fi
+if [[ "$(code_of -d "username=teacher&password=password123" "${URL}/login")" == 303 ]]; then
+    ok "other users can still log in"; else not_ok "other users can still log in"; fi
 
 finish

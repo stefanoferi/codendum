@@ -5,7 +5,10 @@
 
 PROTOTYPE. Standard library only (http.server + sqlite3).
 
-- Users register and wait for approval; the first account becomes admin.
+- Users register and wait for approval. While there is no administrator, the
+  panel prints a one-time setup link to its log; the account created through
+  that link becomes the first administrator.
+- Failed logins are limited per client address and username.
 - Each active user gets an API key; the nginx key map is rewritten on every
   change and the proxy is reloaded with CODENDUM_WEB_RELOAD_CMD.
 - /auth/verify answers nginx auth_request, so that Open WebUI can trust the
@@ -67,6 +70,14 @@ USERNAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{2,31}$")
 SESSION_COOKIE = "codendum_session"
 SESSION_TTL = 12 * 3600
 DB_LOCK = threading.Lock()
+# Failed logins in a sliding window. A classroom often shares one NAT address,
+# so the per-address limit is generous; the per-username limit is strict.
+LOGIN_WINDOW = 600
+LOGIN_MAX_PER_USER = 5
+LOGIN_MAX_PER_CLIENT = 30
+FAILURES: Dict[Any, List[float]] = {}
+FAILURES_LOCK = threading.Lock()
+SETUP_TOKEN = ""  # one-time token for the first administrator, see main()
 
 
 # --------------------------------------------------------------------------
@@ -123,6 +134,26 @@ def query(sql: str, args: Tuple = ()) -> List[sqlite3.Row]:
         cur = CONN.execute(sql, args)
         CONN.commit()
         return cur.fetchall()
+
+
+def too_many_failures(keys: List[Tuple[Any, int]]) -> bool:
+    cutoff = time.time() - LOGIN_WINDOW
+    with FAILURES_LOCK:
+        blocked = False
+        for key, limit in keys:
+            recent = [t for t in FAILURES.get(key, []) if t > cutoff]
+            if recent:
+                FAILURES[key] = recent
+            else:
+                FAILURES.pop(key, None)
+            blocked = blocked or len(recent) >= limit
+        return blocked
+
+
+def record_failure(keys: List[Tuple[Any, int]]) -> None:
+    with FAILURES_LOCK:
+        for key, _ in keys:
+            FAILURES.setdefault(key, []).append(time.time())
 
 
 def write_key_map() -> None:
@@ -250,9 +281,12 @@ def page(title: str, body: str, user: Optional[sqlite3.Row] = None) -> bytes:
             "<main>{b}</main></body></html>").format(t=html.escape(title), css=CSS, r=right, b=body).encode()
 
 
-def login_form(error: str = "", register: bool = False) -> str:
+def login_form(error: str = "", register: bool = False, setup: str = "") -> str:
     action, label = ("/register", "Create account") if register else ("/login", "Log in")
     extra = ("<label>E-mail<input name=email type=email required></label>" if register else "")
+    if register and setup:
+        label = "Create the administrator account"
+        extra += '<input type=hidden name=setup value="{}">'.format(html.escape(setup))
     switch = ('Already registered? <a href="/login">Log in</a>' if register
               else 'No account yet? <a href="/register">Register</a>')
     err = '<p class="err">{}</p>'.format(html.escape(error)) if error else ""
@@ -352,6 +386,12 @@ class Handler(BaseHTTPRequestHandler):
         data = urllib.parse.parse_qs(self.rfile.read(length).decode("utf-8", "replace"))
         return {k: v[0].strip() for k, v in data.items()}
 
+    def client_ip(self) -> str:
+        # The panel listens on loopback behind nginx, which appends the real
+        # client address as the last X-Forwarded-For entry.
+        forwarded = self.headers.get("X-Forwarded-For", "")
+        return forwarded.rsplit(",", 1)[-1].strip() or self.client_address[0]
+
     def current_user(self) -> Optional[sqlite3.Row]:
         jar = cookies.SimpleCookie(self.headers.get("Cookie", ""))
         if SESSION_COOKIE not in jar:
@@ -368,13 +408,15 @@ class Handler(BaseHTTPRequestHandler):
     # ---- GET ---------------------------------------------------------------
     def do_GET(self) -> None:
         user = self.current_user()
-        if self.path == "/logo.png":
+        path, _, qs = self.path.partition("?")
+        if path == "/logo.png":
             with open(LOGO, "rb") as handle:
                 self.send(200, handle.read(), "image/png", {"Cache-Control": "max-age=86400"})
-        elif self.path == "/login":
+        elif path == "/login":
             self.send(200, page("Log in", login_form()))
-        elif self.path == "/register":
-            self.send(200, page("Register", login_form(register=True)))
+        elif path == "/register":
+            setup = urllib.parse.parse_qs(qs).get("setup", [""])[0]
+            self.send(200, page("Register", login_form(register=True, setup=setup)))
         elif self.path == "/auth/verify":
             # For nginx auth_request in front of Open WebUI (trusted header login).
             if user and user["status"] == "active":
@@ -400,34 +442,50 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---- POST --------------------------------------------------------------
     def do_POST(self) -> None:
+        global SETUP_TOKEN
         data = self.form()
         user = self.current_user()
         if self.path == "/register":
             username, email, password = data.get("username", "").lower(), data.get("email", ""), data.get("password", "")
+            setup = data.get("setup", "")
             if not USERNAME_RE.match(username):
-                self.send(400, page("Register", login_form("Username: 3-32 lowercase letters, digits, . _ -", True)))
+                self.send(400, page("Register", login_form("Username: 3-32 lowercase letters, digits, . _ -", True, setup)))
                 return
             if len(password) < 8 or "@" not in email:
-                self.send(400, page("Register", login_form("Use a valid e-mail and a password of 8+ characters.", True)))
+                self.send(400, page("Register", login_form("Use a valid e-mail and a password of 8+ characters.",
+                                                           True, setup)))
                 return
-            first = not query("SELECT 1 FROM users WHERE role = 'admin'")
+            first = bool(setup)
+            if first and not (SETUP_TOKEN and hmac.compare_digest(setup, SETUP_TOKEN)):
+                self.send(400, page("Register", login_form("This setup link is not valid any more.", True)))
+                return
             try:
                 query("INSERT INTO users (username, email, password, role, status, api_key, created_at) "
                       "VALUES (?, ?, ?, ?, ?, ?, ?)",
                       (username, email, hash_password(password), "admin" if first else "user",
                        "active" if first else "pending", new_key() if first else None, now_iso()))
             except sqlite3.IntegrityError:
-                self.send(400, page("Register", login_form("This username is taken.", True)))
+                self.send(400, page("Register", login_form("This username is taken.", True, setup)))
                 return
             if first:
+                SETUP_TOKEN = ""
                 write_key_map()
             new = query("SELECT id FROM users WHERE username = ?", (username,))[0]
             self.redirect("/", self.session_cookie(new["id"]))
         elif self.path == "/login":
-            rows = query("SELECT * FROM users WHERE username = ?", (data.get("username", "").lower(),))
+            username = data.get("username", "").lower()
+            ip = self.client_ip()
+            keys = [((ip, username), LOGIN_MAX_PER_USER), (ip, LOGIN_MAX_PER_CLIENT)]
+            if too_many_failures(keys):
+                self.send(429, page("Log in", login_form("Too many failed attempts. Try again in a few minutes.")))
+                return
+            rows = query("SELECT * FROM users WHERE username = ?", (username,))
             if not rows or not check_password(data.get("password", ""), rows[0]["password"]):
+                record_failure(keys)
                 self.send(401, page("Log in", login_form("Wrong username or password.")))
                 return
+            with FAILURES_LOCK:
+                FAILURES.pop((ip, username), None)
             self.redirect("/", self.session_cookie(rows[0]["id"]))
         elif self.path == "/logout":
             jar = cookies.SimpleCookie(self.headers.get("Cookie", ""))
@@ -476,9 +534,15 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
+    global SETUP_TOKEN
     host, _, port = LISTEN.rpartition(":")
     server = ThreadingHTTPServer((host or "127.0.0.1", int(port)), Handler)
     print("codendum-web (prototype) on http://{}  db={}  map={}".format(LISTEN, DB_PATH, MAP_PATH), flush=True)
+    if not query("SELECT 1 FROM users WHERE role = 'admin'"):
+        # Only readable from the container log. A new link is printed on every
+        # start until an administrator exists.
+        SETUP_TOKEN = secrets.token_urlsafe(24)
+        print("No administrator yet. Create one at {}/register?setup={}".format(API_URL, SETUP_TOKEN), flush=True)
     server.serve_forever()
 
 
