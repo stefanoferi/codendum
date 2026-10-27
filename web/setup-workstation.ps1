@@ -5,7 +5,8 @@
 # @@...@@ values for one user and serves it once, for
 #   curl.exe -fsSk --pinnedpubkey 'sha256//...' https://HOST:8443/s/CODE.ps1 | Out-String | Invoke-Expression
 #
-# It needs OpenCode 2 and curl.exe (Windows 10 1803 or later), and changes only:
+# It needs OpenCode 2 and curl.exe 7.58.1 or later (key pinning with Schannel),
+# included in up-to-date Windows 10 and 11. It changes only:
 # - %USERPROFILE%\.config\codendum\ (certificate, API key, provider snippet);
 # - the "codendum" provider and default model in the OpenCode configuration
 #   (backup first);
@@ -29,7 +30,7 @@
     try {
         $ErrorActionPreference = 'Stop'
         Write-Host "Codendum: setting up OpenCode for $Base"
-        if (-not (Get-Command curl.exe -ErrorAction SilentlyContinue)) { throw 'curl.exe is required (Windows 10 1803 or later)' }
+        if (-not (Get-Command curl.exe -ErrorAction SilentlyContinue)) { throw 'curl.exe 7.58.1 or later is required: update Windows' }
         if (-not (Get-Command opencode -ErrorAction SilentlyContinue)) {
             throw 'OpenCode is not installed. Install it with the commands on the Codendum page, then create a new setup command there.'
         }

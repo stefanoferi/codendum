@@ -54,7 +54,11 @@ curl.exe -fsSk --pinnedpubkey 'sha256//…' https://HOST:8443/s/CODE.ps1 | Out-S
 - `/ca.pem` serves the last certificate of the chain, for browsers.
 
 Tested with OpenCode 2.0.32 on macOS and with a simulated Linux workstation in
-`tests/test-web.sh`. The Windows script is not tested yet.
+`tests/test-web.sh`. The Windows script is not tested yet; it needs `curl.exe` 7.58.1 or later
+(pinning with Schannel), as shipped in up-to-date Windows 10 and 11.
+
+OpenCode 2 accepts the 1.x `provider` key next to `providers`, so existing
+1.x provider entries keep working (checked with 2.0.32).
 
 ## Install on the GB10 host
 

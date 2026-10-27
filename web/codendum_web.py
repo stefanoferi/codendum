@@ -433,7 +433,8 @@ def user_card(user: sqlite3.Row, host: str) -> str:
         if rows:
             pin, url = spki_pin(chain[0]), "{}/s/{}".format(base, rows[0]["code"])
             minutes = max(1, int((rows[0]["expires"] - time.time()) // 60))
-            connect = ('<p>macOS and Linux, in a terminal:</p>{sh}<p>Windows, in PowerShell:</p>{ps}'
+            connect = ('<p>macOS and Linux, in a terminal:</p>{sh}<p>Windows, in PowerShell (an up-to-date '
+                       'Windows 10 or 11: <code>curl.exe --version</code> must show 7.58.1 or later):</p>{ps}'
                        '<p class="muted">Works once, for {m} more minutes. It is personal: it contains your key.</p>'
                        '<form method="post" action="/setup/new"><button>New command</button></form>').format(
                 sh=copyable("cmd-sh", "curl -fsSk --pinnedpubkey '{}' {} | sh".format(pin, url)),
