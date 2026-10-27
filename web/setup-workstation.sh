@@ -160,6 +160,10 @@ CODENDUM_PROVIDER
 
     say ""
     say "Done. Open a new terminal, go to your project folder and run: opencode"
+    if [ "$(uname -s)" = Darwin ]; then
+        say "macOS 15 or later: if OpenCode reports EHOSTUNREACH, allow OpenCode (and your terminal app) in"
+        say "System Settings > Privacy & Security > Local Network, then restart it."
+    fi
 }
 
 main "$@" </dev/null
