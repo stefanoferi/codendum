@@ -402,9 +402,9 @@ def page(title: str, body: str, user: Optional[sqlite3.Row] = None) -> bytes:
                 t=html.escape(title), css=CSS, r=right, b=body).encode()
 
 
-def login_form(error: str = "", register: bool = False, setup: str = "") -> str:
+def login_form(error: str = "", register: bool = False, setup: str = "", next_url: str = "") -> str:
     action, label = ("/register", "Create account") if register else ("/login", "Log in")
-    extra = ""
+    extra = '<input type=hidden name=next value="{}">'.format(html.escape(next_url)) if next_url else ""
     if register and setup:
         label = "Create the administrator account"
         extra += '<input type=hidden name=setup value="{}">'.format(html.escape(setup))
@@ -578,6 +578,17 @@ class Handler(BaseHTTPRequestHandler):
         forwarded = self.headers.get("X-Forwarded-For", "")
         return forwarded.rsplit(",", 1)[-1].strip() or self.client_address[0]
 
+    def safe_next(self, url: str) -> str:
+        """Where to go after login: a local path, or HTTPS on this same host (the chat
+        on another port); anything else is dropped, so this is no open redirect."""
+        if url.startswith("/") and not url.startswith("//") and "\\" not in url:
+            return url
+        parts = urllib.parse.urlsplit(url)
+        host = self.headers.get("Host", "").rsplit(":", 1)[0].lower()
+        if parts.scheme == "https" and parts.hostname and parts.hostname.lower() == host and not parts.username:
+            return url
+        return ""
+
     def current_user(self) -> Optional[sqlite3.Row]:
         jar = cookies.SimpleCookie(self.headers.get("Cookie", ""))
         if SESSION_COOKIE not in jar:
@@ -621,7 +632,8 @@ class Handler(BaseHTTPRequestHandler):
             script = workstation_script(kind, rows[0], public_url(API_URL, self.headers.get("Host", "")), chain, model)
             self.send(200, script.encode(), "text/plain; charset=utf-8", {"Cache-Control": "no-store"})
         elif path == "/login":
-            self.send(200, page("Log in", login_form()))
+            self.send(200, page("Log in", login_form(next_url=self.safe_next(
+                urllib.parse.parse_qs(qs).get("next", [""])[0]))))
         elif path == "/register":
             setup = urllib.parse.parse_qs(qs).get("setup", [""])[0]
             self.send(200, page("Register", login_form(register=True, setup=setup)))
@@ -683,17 +695,19 @@ class Handler(BaseHTTPRequestHandler):
             ip = self.client_ip()
             keys = [((ip, username), LOGIN_MAX_PER_USER), (ip, LOGIN_MAX_PER_CLIENT)]
             if too_many_failures(keys):
-                self.send(429, page("Log in", login_form("Too many failed attempts. Try again in a few minutes.")))
+                self.send(429, page("Log in", login_form("Too many failed attempts. Try again in a few minutes.",
+                                                        next_url=self.safe_next(data.get("next", "")))))
                 return
             rows = query("SELECT * FROM users WHERE username = ? OR lower(email) = ? ORDER BY id LIMIT 1",
                          (username, username))
             if not rows or not check_password(data.get("password", ""), rows[0]["password"]):
                 record_failure(keys)
-                self.send(401, page("Log in", login_form("Wrong e-mail or password.")))
+                self.send(401, page("Log in", login_form("Wrong e-mail or password.",
+                                                        next_url=self.safe_next(data.get("next", "")))))
                 return
             with FAILURES_LOCK:
                 FAILURES.pop((ip, username), None)
-            self.redirect("/", self.session_cookie(rows[0]["id"]))
+            self.redirect(self.safe_next(data.get("next", "")) or "/", self.session_cookie(rows[0]["id"]))
         elif self.path == "/register/check":
             keys = [(("check", self.client_ip()), CHECKS_PER_CLIENT)]
             if too_many_failures(keys):

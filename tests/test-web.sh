@@ -149,6 +149,12 @@ if [[ "$(code_of "${URL}/auth/verify")" == 401 ]]; then ok "/auth/verify refuses
 if page_of "$S" | grep -q 'href="https://localhost:8444/" target="_blank" rel="noopener">Open the chat'; then
     ok "chat link uses the browser host and opens in a new tab"; else not_ok "chat link uses the browser host and opens in a new tab"; fi
 
+loc_of() { "${C[@]}" -o /dev/null -w '%{redirect_url}' -d "email=t@example.org&password=password123&next=$1" "${URL}/login"; }
+if [[ "$(loc_of 'https://localhost:8444/c/abc')" == "https://localhost:8444/c/abc" ]]; then
+    ok "after login, back to the chat on the same host"; else not_ok "after login, back to the chat on the same host"; fi
+if [[ "$(loc_of 'https://evil.example/')" == "${URL}/" && "$(loc_of '//evil.example/')" == "${URL}/" ]]; then
+    ok "after login, other hosts are refused (no open redirect)"; else not_ok "after login, other hosts are refused"; fi
+
 echo "# block"
 SID="$(docker exec "$WEB" python3 -c "import sqlite3; print(sqlite3.connect('/data/web.sqlite').execute(\"select id from users where username='s@example.org'\").fetchone()[0])")"
 check "admin blocks the student" "${C[@]}" -o /dev/null -b "$A" -X POST "${URL}/admin/${SID}/block"
