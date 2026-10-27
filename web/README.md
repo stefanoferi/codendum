@@ -11,8 +11,11 @@ A small panel for a classroom, hackathon, lab or office:
 - every approved person finds on their own page how to install OpenCode, a
   one-time command that sets it up for Codendum, the link to the chat, and
   their API key;
-- administrators approve (one or all), block, unblock, delete, renew keys and
-  grant the administrator role;
+- administrators approve (one or all), block, unblock, delete, renew keys,
+  reset passwords and grant the administrator role on `/admin`;
+- the same page holds a few settings: registration open or closed, the e-mail
+  domains allowed to register (optionally approved at once), and a notice
+  shown at the top of every personal page;
 - a status box shows whether vLLM is up, the running and waiting requests, KV
   cache usage, and who made the most requests in the last 10 minutes.
 
@@ -22,12 +25,14 @@ The panel writes the keys of approved users to `api-keys-web.map`, next to the
 working.
 
 **Prototype:** standard library only, one Python file and one SQLite file,
-covered by `tests/test-web.sh`. Not yet included:
+covered by `tests/test-web.sh`. `/auth/verify` answers nginx `auth_request`, so
+that Open WebUI can trust the logged-in user; the nginx side of that is not in
+`patch-nginx.py` yet.
 
-- login to Open WebUI through Codendum (`/auth/verify` is ready for nginx
-  `auth_request`, but it is not wired up yet);
-- protection against cross-site request forgery beyond `SameSite=Strict`
-  cookies.
+Every form that changes something carries a token derived from the session
+(CSRF protection), on top of `SameSite=Strict` cookies. A password reset shows
+a random password once to the administrator and logs the person out
+everywhere; there is no e-mail delivery.
 
 Failed logins are limited: 5 per username and client address, and 30 per
 client address, in 10 minutes. The second limit is generous because a

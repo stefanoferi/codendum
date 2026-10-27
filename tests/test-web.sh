@@ -7,8 +7,9 @@
 # Python container with the Docker socket, and tests/mock_vllm.py stands in
 # for vLLM. The administrator registers through the one-time setup link; a
 # user registers, is approved, uses the API key, runs the one-time workstation
-# setup command (with a fake opencode) and is blocked; repeated failed logins
-# are refused.
+# setup command (with a fake opencode) and is blocked; the administration
+# settings and password reset work; forms need the session's CSRF token;
+# repeated failed logins are refused.
 
 # shellcheck source=tests/lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -62,6 +63,10 @@ for _ in $(seq 1 100); do curl -s -o /dev/null "http://127.0.0.1:${WEB_PORT}/log
 URL="https://localhost:${HTTPS_PORT}"
 C=(curl -sS --noproxy '*' --cacert "${P}/tls/fullchain.pem" --max-time 20)
 page_of() { "${C[@]}" -b "$1" "${URL}/"; }
+admin_of() { "${C[@]}" -b "$1" "${URL}/admin"; }
+csrf_of() { page_of "$1" | grep -oE 'name=csrf value="[0-9a-f]{64}"' | head -1 | grep -oE '[0-9a-f]{64}'; }
+# post JAR PATH [FIELDS]: a form sent from the panel's own page, with the CSRF token.
+post() { "${C[@]}" -o /dev/null -w '%{http_code}' -b "$1" --data "csrf=$(csrf_of "$1")${3:+&$3}" "${URL}$2"; }
 code_of() { "${C[@]}" -o /dev/null -w '%{http_code}' "$@"; }
 A="${TMP_ROOT}/admin.jar"
 S="${TMP_ROOT}/student.jar"
@@ -72,7 +77,7 @@ if [[ -n "$SETUP" ]]; then ok "panel logs a one-time setup link"; else not_ok "p
 check "student registers before any administrator" "${C[@]}" -o /dev/null -c "$S" -d "email=s@example.org&password=password123" "${URL}/register"
 if page_of "$S" | grep -q 'Waiting for approval'; then ok "student waits for approval, does not become admin"; else not_ok "student waits for approval, does not become admin"; fi
 check "admin registers with the setup link" "${C[@]}" -o /dev/null -c "$A" -d "email=T@Example.org&password=password123&setup=${SETUP}" "${URL}/register"
-if page_of "$A" | grep -q 'Approve all'; then ok "setup account is the administrator"; else not_ok "setup account is the administrator"; fi
+if admin_of "$A" | grep -q 'Approve all'; then ok "setup account is the administrator"; else not_ok "setup account is the administrator"; fi
 if [[ "$(code_of -d "email=i@example.org&password=password123&setup=${SETUP}" "${URL}/register")" == 400 ]]; then
     ok "setup link works only once"; else not_ok "setup link works only once"; fi
 echo "# e-mail as user name"
@@ -84,7 +89,9 @@ if check_email 'not-an-email' | grep -q 'not a valid'; then ok "registration che
 if [[ "$(code_of -d "email=s@example.org&password=password123" "${URL}/register")" == 400 ]]; then
     ok "the same e-mail cannot register twice"; else not_ok "the same e-mail cannot register twice"; fi
 if page_of "$A" | grep -q 't@example.org'; then ok "header shows the e-mail as user name"; else not_ok "header shows the e-mail as user name"; fi
-check "admin approves everyone" "${C[@]}" -o /dev/null -b "$A" -X POST "${URL}/admin/approve-all"
+if [[ "$(code_of -b "$A" -X POST "${URL}/admin/approve-all")" == 403 ]] && page_of "$S" | grep -q 'Waiting for approval'; then
+    ok "a form without the CSRF token is refused"; else not_ok "a form without the CSRF token is refused"; fi
+if [[ "$(post "$A" /admin/approve-all)" == 303 ]]; then ok "admin approves everyone"; else not_ok "admin approves everyone"; fi
 KEY="$("${C[@]}" -b "$S" "${URL}/" | grep -oE 'cdm_[0-9a-f]{64}' | head -1)"
 if [[ -n "$KEY" ]]; then ok "student sees an API key"; else not_ok "student sees an API key"; fi
 if page_of "$S" | grep -q "https://localhost:${HTTPS_PORT}/v1"; then ok "API URL uses the host name the browser used"; else not_ok "API URL uses the host name the browser used"; fi
@@ -97,7 +104,7 @@ if [[ "$(code_of -b "$S" "${URL}/api/status")" == 403 ]]; then ok "student canno
 if "${C[@]}" -b "$A" "${URL}/api/status" | grep -q '"vllm": "up"'; then ok "admin reads the service status"; else not_ok "admin reads the service status"; fi
 
 echo "# workstation setup"
-check "student creates a setup command" "${C[@]}" -o /dev/null -b "$S" -X POST "${URL}/setup/new"
+if [[ "$(post "$S" /setup/new)" == 303 ]]; then ok "student creates a setup command"; else not_ok "student creates a setup command"; fi
 CMD="$(page_of "$S" | grep -oE "curl -fsSk --pinnedpubkey &#x27;sha256//[A-Za-z0-9+/=]+&#x27; https://[^ ]+/s/[A-Za-z0-9_-]+ \| sh" | sed "s/&#x27;/'/g")"
 if [[ -n "$CMD" ]]; then ok "page shows the pinned one-line command"; else not_ok "page shows the pinned one-line command"; fi
 if page_of "$S" | grep -q 'Out-String | Invoke-Expression'; then ok "page shows the Windows command"; else not_ok "page shows the Windows command"; fi
@@ -155,15 +162,39 @@ if [[ "$(loc_of 'https://localhost:8444/c/abc')" == "https://localhost:8444/c/ab
 if [[ "$(loc_of 'https://evil.example/')" == "${URL}/" && "$(loc_of '//evil.example/')" == "${URL}/" ]]; then
     ok "after login, other hosts are refused (no open redirect)"; else not_ok "after login, other hosts are refused"; fi
 
-echo "# block"
+echo "# administration"
+if [[ "$(code_of -b "$S" "${URL}/admin")" == 403 ]]; then ok "student cannot open the administration"; else not_ok "student cannot open the administration"; fi
+post "$A" /admin/settings "domains=example.org&notice=Server+restarts+at+13:00" >/dev/null
+if [[ "$("${C[@]}" -d "email=late@example.org&password=password123" -o /dev/null -w '%{http_code}' "${URL}/register")" == 400 ]] &&
+    check_email 'late@example.org' | grep -q 'Registration is closed' && ! "${C[@]}" "${URL}/login" | grep -q 'href="/register"'; then
+    ok "registration closed: no new accounts, no Register link"; else not_ok "registration closed: no new accounts, no Register link"; fi
+if page_of "$S" | grep -q 'Server restarts at 13:00'; then ok "users see the notice"; else not_ok "users see the notice"; fi
+if [[ "$(post "$A" /admin/settings "registration=open&domains=not_a_domain")" == 400 ]]; then
+    ok "settings: invalid domain refused"; else not_ok "settings: invalid domain refused"; fi
+post "$A" /admin/settings "registration=open&domains=%40Example.org&auto_approve=on" >/dev/null
+if admin_of "$A" | grep -q 'value="example.org"' && check_email 'x@other.example' | grep -q 'Only addresses at example.org'; then
+    ok "registration limited to the allowed domains"; else not_ok "registration limited to the allowed domains"; fi
+R="${TMP_ROOT}/auto.jar"
+"${C[@]}" -o /dev/null -c "$R" -d "email=auto@example.org&password=password123" "${URL}/register"
+if page_of "$R" | grep -qE 'cdm_[0-9a-f]{64}'; then ok "allowed domain approved automatically"; else not_ok "allowed domain approved automatically"; fi
+post "$A" /admin/settings "registration=open" >/dev/null
+"${C[@]}" -o /dev/null -c "$R" -d "email=other@other.example&password=password123" "${URL}/register"
+if page_of "$R" | grep -q 'Waiting for approval'; then ok "without domains, new accounts wait again"; else not_ok "without domains, new accounts wait again"; fi
 SID="$(docker exec "$WEB" python3 -c "import sqlite3; print(sqlite3.connect('/data/web.sqlite').execute(\"select id from users where username='s@example.org'\").fetchone()[0])")"
-check "admin blocks the student" "${C[@]}" -o /dev/null -b "$A" -X POST "${URL}/admin/${SID}/block"
+NEWPW="$("${C[@]}" -b "$A" --data "csrf=$(csrf_of "$A")" "${URL}/admin/${SID}/password" | grep -oE '<pre id="new-password">[^<]+' | cut -d'>' -f2)"
+if [[ -n "$NEWPW" && "$(code_of -b "$S" "${URL}/")" == 303 ]]; then ok "password reset logs the user out"; else not_ok "password reset logs the user out"; fi
+if [[ "$(code_of -c "$S" --data-urlencode "email=s@example.org" --data-urlencode "password=${NEWPW}" "${URL}/login")" == 303 ]] &&
+    [[ "$(code_of -d "email=s@example.org&password=password123" "${URL}/login")" == 401 ]]; then
+    ok "the new password works, the old one does not"; else not_ok "the new password works, the old one does not"; fi
+
+echo "# block"
+if [[ "$(post "$A" "/admin/${SID}/block")" == 303 ]]; then ok "admin blocks the student"; else not_ok "admin blocks the student"; fi
 sleep 1
 got="$("${C[@]}" -o /dev/null -w '%{http_code}' -H "Authorization: Bearer ${KEY}" "${URL}/v1/models")"
 if [[ "$got" == 401 ]]; then ok "blocked key is rejected"; else not_ok "blocked key is rejected (got ${got})"; fi
 
 echo "# login rate limit"
-for _ in 1 2 3 4 5; do code_of -d "email=s@example.org&password=wrong-password" "${URL}/login" >/dev/null; done
+for _ in 1 2 3 4; do code_of -d "email=s@example.org&password=wrong-password" "${URL}/login" >/dev/null; done
 if [[ "$(code_of -d "email=s@example.org&password=password123" "${URL}/login")" == 429 ]]; then
     ok "login refused after 5 failures, even with the right password"; else not_ok "login refused after 5 failures"; fi
 if [[ "$(code_of -d "email=t@example.org&password=password123" "${URL}/login")" == 303 ]]; then

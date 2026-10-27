@@ -10,6 +10,10 @@ PROTOTYPE. Standard library only (http.server + sqlite3).
   that link becomes the first administrator.
 - People sign in with their e-mail address; the registration form checks it
   while it is typed. Failed logins are limited per client address and e-mail.
+- Administrators manage people and a few settings on /admin: registration
+  open or closed, allowed e-mail domains (optionally approved at once), a
+  notice shown to every user, and password resets. Forms that change
+  something carry a token derived from the session (CSRF protection).
 - Each active user gets an API key; the nginx key map is rewritten on every
   change and the proxy is reloaded with CODENDUM_WEB_RELOAD_CMD.
 - /auth/verify answers nginx auth_request, so that Open WebUI can trust the
@@ -132,7 +136,14 @@ CREATE TABLE IF NOT EXISTS setup_codes (
     user_id INTEGER NOT NULL,
     expires REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """)
+DEFAULT_SETTINGS = {"registration": "open", "domains": "", "auto_approve": "", "notice": ""}
+DOMAIN_RE = re.compile(r"^[a-z0-9-]{1,63}(\.[a-z0-9-]{1,63})+$")
+NOTICE_MAX = 500
 
 
 def now_iso() -> str:
@@ -230,6 +241,21 @@ def take_setup_code(code: str) -> Optional[int]:
         CONN.execute("DELETE FROM setup_codes WHERE code = ? OR expires <= ?", (code, time.time()))
         CONN.commit()
     return row["user_id"] if row else None
+
+
+def settings() -> Dict[str, str]:
+    values = dict(DEFAULT_SETTINGS)
+    values.update((r["key"], r["value"]) for r in query("SELECT key, value FROM settings"))
+    return values
+
+
+def domains_of(text: str) -> List[str]:
+    return [d.lstrip("@") for d in re.split(r"[\s,;]+", text.lower()) if d.lstrip("@")]
+
+
+def csrf_of(session_token: str) -> str:
+    """Form token for one session: only pages of that session can know it."""
+    return hmac.new(session_token.encode(), b"codendum-csrf", hashlib.sha256).hexdigest()
 
 
 def new_key() -> str:
@@ -386,14 +412,26 @@ input{font:inherit;width:100%;padding:8px 10px;border:1px solid var(--line);bord
 h3{font-size:15px;margin:18px 0 6px}.steps{padding-left:20px}.steps li{margin:0 0 16px}.steps p{margin:8px 0 4px}
 .copy{display:flex;gap:8px;align-items:flex-start}.copy pre{flex:1;margin:0;white-space:pre-wrap;word-break:break-all}
 details{margin-top:8px}summary{cursor:pointer;color:var(--link)}
+nav{display:flex;gap:14px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+textarea{font:inherit;width:100%;min-height:70px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;
+background:var(--bg);color:var(--ink);margin:4px 0 12px}
+label.check{display:flex;gap:8px;align-items:center;margin:4px 0}label.check input{width:auto;margin:0}
+.notice{border-left:4px solid var(--brand);white-space:pre-line}.ok-msg{color:var(--ok)}
+.field-help{margin:-8px 0 12px;font-size:13px}
 """
 
 
-def page(title: str, body: str, user: Optional[sqlite3.Row] = None) -> bytes:
+def page(title: str, body: str, user: Optional[sqlite3.Row] = None, csrf: str = "") -> bytes:
     right = ""
     if user:
-        right = ('<div><span class="muted">{}</span> <form class="inline" method="post" action="/logout">'
-                 '<button>Log out</button></form></div>').format(html.escape(user["username"]))
+        nav = ('<a href="/">My access</a> <a href="/admin">Administration</a> '
+               if user["role"] == "admin" and user["status"] == "active" else "")
+        right = ('<nav>{}<span class="muted">{}</span> <form class="inline" method="post" action="/logout">'
+                 '<button>Log out</button></form></nav>').format(nav, html.escape(user["username"]))
+    if csrf:
+        right, body = (re.sub(r'(<form [^>]*method="post"[^>]*>)',
+                              r'\1<input type=hidden name=csrf value="{}">'.format(csrf), part)
+                       for part in (right, body))
     return ("<!doctype html><html lang=en><head><meta charset=utf-8>"
             "<meta name=viewport content='width=device-width,initial-scale=1'><title>{t} · Codendum</title>"
             "<style>{css}</style></head><body><header><img src='/logo.png' alt='Codendum'>{r}</header>"
@@ -409,13 +447,18 @@ def login_form(error: str = "", register: bool = False, setup: str = "", next_ur
         label = "Create the administrator account"
         extra += '<input type=hidden name=setup value="{}">'.format(html.escape(setup))
     switch = ('<p>Already registered?</p><a class="btn wide" href="/login">Log in</a>' if register
-              else '<p>No account yet?</p><a class="btn wide" href="/register">Register</a>')
+              else '<p>No account yet?</p><a class="btn wide" href="/register">Register</a>'
+              if settings()["registration"] == "open" else "")
+    if register and not setup and settings()["registration"] != "open":
+        return ('<div class="card narrow"><h2>Registration is closed</h2><p>Ask the administrator.</p>'
+                '<div class="switch">{}</div></div>').format(switch)
     err = '<p class="err">{}</p>'.format(html.escape(error)) if error else ""
     return ('<div class="card narrow"><h2>{label}</h2>{err}<form method="post" action="{action}">'
             '<label>E-mail<input id=email name=email required inputmode=email autocomplete=username></label>'
             '{hint}{extra}<label>Password<input name=password type=password required minlength=8></label>'
-            '<button class="primary wide">{label}</button></form><div class="switch">{switch}</div></div>{script}').format(
-        label=label, err=err, action=action, extra=extra, switch=switch,
+            '<button class="primary wide">{label}</button></form>{switch}</div>{script}').format(
+        label=label, err=err, action=action, extra=extra,
+        switch='<div class="switch">{}</div>'.format(switch) if switch else "",
         hint='<p class="hint" id="email-msg" aria-live="polite"></p>' if register else "",
         script=EMAIL_CHECK_JS if register else "")
 
@@ -428,10 +471,17 @@ headers:{"Content-Type":"application/x-www-form-urlencoded"},body:"email="+encod
 m.textContent=r.message;m.className="hint "+(r.ok?"ok":"err")}catch(x){}},400)})})()</script>"""
 
 
-def email_problem(email: str) -> str:
-    """Why an e-mail cannot be registered, or "" if it can."""
+def email_problem(email: str, first: bool = False) -> str:
+    """Why an e-mail cannot be registered, or "" if it can. The first
+    administrator (setup link) is not bound by the registration settings."""
+    conf = settings()
+    if not first and conf["registration"] != "open":
+        return "Registration is closed."
     if len(email) > 254 or not EMAIL_RE.match(email):
         return "This is not a valid e-mail address."
+    domains = domains_of(conf["domains"])
+    if not first and domains and email.rsplit("@", 1)[1] not in domains:
+        return "Only addresses at {} can register.".format(", ".join(domains))
     if query("SELECT 1 FROM users WHERE username = ? OR lower(email) = ?", (email, email)):
         return "This e-mail is already registered: log in instead."
     return ""
@@ -504,13 +554,14 @@ def copyable(element_id: str, text: str) -> str:
         i=element_id, t=html.escape(text))
 
 
-def admin_cards(me: int) -> str:
+def admin_cards(me: int, message: str = "", error: str = "") -> str:
     rows = query("SELECT * FROM users ORDER BY CASE status WHEN 'pending' THEN 0 WHEN 'active' THEN 1 ELSE 2 END, username")
     pending = sum(1 for r in rows if r["status"] == "pending")
     status = ('<div class="card"><h2>Service</h2><div class="stats" id="stats">loading…</div>'
               '<p class="muted" id="top"></p></div>')
     actions = {"pending": [("approve", "Approve"), ("delete", "Reject")],
-               "active": [("block", "Block"), ("regen", "New key"), ("promote", "Make admin")],
+               "active": [("block", "Block"), ("regen", "New key"), ("password", "Reset password"),
+                          ("promote", "Make admin")],
                "blocked": [("unblock", "Unblock"), ("delete", "Delete")]}
     trs = []
     for r in rows:
@@ -518,7 +569,7 @@ def admin_cards(me: int) -> str:
         if r["role"] == "admin" and r["status"] == "active":
             buttons = [(a, l) for a, l in buttons if a not in ("promote",)] + [("demote", "Remove admin")]
         if r["id"] == me:
-            buttons = [(a, l) for a, l in buttons if a not in ("block", "delete", "demote")]
+            buttons = [(a, l) for a, l in buttons if a not in ("block", "delete", "demote", "password")]
         forms = " ".join('<form class="inline" method="post" action="/admin/{}/{}"><button>{}</button></form>'.format(
             r["id"], a, l) for a, l in buttons)
         trs.append('<tr><td><b>{}</b>{}<br><span class="muted">{}</span></td><td><span class="badge {}">{}</span></td>'
@@ -538,7 +589,25 @@ document.getElementById('stats').innerHTML=
 <div class=stat><b>${s.kv===null?'–':s.kv+'%'}</b><span>KV cache</span></div>`;
 document.getElementById('top').textContent=s.top.length?'Most requests, last 10 min: '+s.top.map(t=>t[0]+' ('+t[1]+')').join(', '):'';
 }catch(e){}}refresh();setInterval(refresh,5000);</script>"""
-    return status + people + script
+    conf = settings()
+    flash = ('<p class="err">{}</p>'.format(html.escape(error)) if error else
+             '<p class="ok-msg">{}</p>'.format(html.escape(message)) if message else "")
+    checked = lambda on: " checked" if on else ""  # noqa: E731
+    options = ('<div class="card" id="settings"><h2>Settings</h2>{flash}<form method="post" action="/admin/settings">'
+               '<label class="check"><input type=checkbox name=registration value=open{reg}> Registration open</label>'
+               '<p class="muted field-help">When closed, nobody can create an account; existing accounts keep working.</p>'
+               '<label>E-mail domains allowed to register<input name=domains value="{dom}" '
+               'placeholder="school.example, lab.example"></label>'
+               '<p class="muted field-help">Separated by commas. Empty: any domain.</p>'
+               '<label class="check"><input type=checkbox name=auto_approve value=on{auto}> Approve these domains '
+               'automatically</label><p class="muted field-help">Only when domains are listed above. Everyone else '
+               'waits for approval.</p>'
+               '<label>Notice for users<textarea name=notice maxlength={nmax} placeholder="For example: the server '
+               'restarts at 13:00.">{notice}</textarea></label><p class="muted field-help">Shown at the top of every '
+               'personal page. Empty: no notice.</p><button class="primary">Save settings</button></form></div>').format(
+        flash=flash, reg=checked(conf["registration"] == "open"), dom=html.escape(conf["domains"]),
+        auto=checked(conf["auto_approve"] == "on"), nmax=NOTICE_MAX, notice=html.escape(conf["notice"]))
+    return status + people + options + script
 
 
 # --------------------------------------------------------------------------
@@ -547,6 +616,7 @@ document.getElementById('top').textContent=s.top.length?'Most requests, last 10 
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "codendum-web"
+    csrf = ""  # form token of the current session, set by current_user()
 
     def log_message(self, fmt: str, *args: Any) -> None:
         sys.stderr.write("%s %s\n" % (now_iso(), fmt % args))
@@ -592,12 +662,20 @@ class Handler(BaseHTTPRequestHandler):
         return ""
 
     def current_user(self) -> Optional[sqlite3.Row]:
+        self.csrf = ""
         jar = cookies.SimpleCookie(self.headers.get("Cookie", ""))
         if SESSION_COOKIE not in jar:
             return None
+        token = jar[SESSION_COOKIE].value
         rows = query("SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ? AND s.expires > ?",
-                     (jar[SESSION_COOKIE].value, time.time()))
-        return rows[0] if rows else None
+                     (token, time.time()))
+        if not rows:
+            return None
+        self.csrf = csrf_of(token)
+        return rows[0]
+
+    def page(self, title: str, body: str, user: Optional[sqlite3.Row] = None) -> bytes:
+        return page(title, body, user, self.csrf if user else "")
 
     def session_cookie(self, user_id: int) -> str:
         token = secrets.token_urlsafe(32)
@@ -634,11 +712,11 @@ class Handler(BaseHTTPRequestHandler):
             script = workstation_script(kind, rows[0], public_url(API_URL, self.headers.get("Host", "")), chain, model)
             self.send(200, script.encode(), "text/plain; charset=utf-8", {"Cache-Control": "no-store"})
         elif path == "/login":
-            self.send(200, page("Log in", login_form(next_url=self.safe_next(
+            self.send(200, self.page("Log in", login_form(next_url=self.safe_next(
                 urllib.parse.parse_qs(qs).get("next", [""])[0]))))
         elif path == "/register":
             setup = urllib.parse.parse_qs(qs).get("setup", [""])[0]
-            self.send(200, page("Register", login_form(register=True, setup=setup)))
+            self.send(200, self.page("Register", login_form(register=True, setup=setup)))
         elif self.path == "/auth/verify":
             # For nginx auth_request in front of Open WebUI (trusted header login).
             if user and user["status"] == "active":
@@ -655,40 +733,62 @@ class Handler(BaseHTTPRequestHandler):
             if not user:
                 self.redirect("/login")
                 return
-            body = user_card(user, self.headers.get("Host", ""))
+            notice = settings()["notice"]
+            body = '<div class="card notice">{}</div>'.format(html.escape(notice)) if notice else ""
+            body += user_card(user, self.headers.get("Host", ""))
             if user["role"] == "admin" and user["status"] == "active":
-                body += admin_cards(user["id"])
-            self.send(200, page("Home", body, user))
+                pending = len(query("SELECT 1 FROM users WHERE status = 'pending'"))
+                body += ('<div class="card"><h2>Administration</h2><p>{} waiting for approval.</p>'
+                         '<a class="btn primary" href="/admin">Open the administration</a></div>').format(
+                    "1 person is" if pending == 1 else "{} people are".format(pending) if pending else "Nobody is")
+            self.send(200, self.page("Home", body, user))
+        elif path == "/admin":
+            if not user:
+                self.redirect("/login?next=/admin")
+            elif user["role"] != "admin" or user["status"] != "active":
+                self.send(403, self.page("Forbidden", '<div class="card">Not allowed.</div>', user))
+            else:
+                saved = "Settings saved." if "saved=1" in qs.split("&") else ""
+                self.send(200, self.page("Administration", admin_cards(user["id"], saved), user))
         else:
-            self.send(404, page("Not found", '<div class="card">Not found.</div>'))
+            self.send(404, self.page("Not found", '<div class="card">Not found.</div>'))
 
     # ---- POST --------------------------------------------------------------
     def do_POST(self) -> None:
         global SETUP_TOKEN
         data = self.form()
         user = self.current_user()
+        if (user and self.path not in ("/register", "/login", "/register/check")
+                and not hmac.compare_digest(data.get("csrf", ""), self.csrf)):
+            self.send(403, self.page("Forbidden", '<div class="card">This form has expired: go back, reload the page '
+                                     'and try again.</div>', user))
+            return
         if self.path == "/register":
             email, password = data.get("email", "").lower(), data.get("password", "")
             username, setup = email, data.get("setup", "")
-            problem = email_problem(email) or ("" if len(password) >= 8 else "Use a password of 8 or more characters.")
-            if problem:
-                self.send(400, page("Register", login_form(problem, True, setup)))
-                return
             first = bool(setup)
             if first and not (SETUP_TOKEN and hmac.compare_digest(setup, SETUP_TOKEN)):
-                self.send(400, page("Register", login_form("This setup link is not valid any more.", True)))
+                self.send(400, self.page("Register", login_form("This setup link is not valid any more.", True)))
                 return
+            problem = email_problem(email, first) or ("" if len(password) >= 8 else
+                                                      "Use a password of 8 or more characters.")
+            if problem:
+                self.send(400, self.page("Register", login_form(problem, True, setup)))
+                return
+            conf = settings()
+            active = first or (conf["auto_approve"] == "on" and email.rsplit("@", 1)[1] in domains_of(conf["domains"]))
             try:
                 query("INSERT INTO users (username, email, password, role, status, api_key, created_at) "
                       "VALUES (?, ?, ?, ?, ?, ?, ?)",
                       (username, email, hash_password(password), "admin" if first else "user",
-                       "active" if first else "pending", new_key() if first else None, now_iso()))
+                       "active" if active else "pending", new_key() if active else None, now_iso()))
             except sqlite3.IntegrityError:
-                self.send(400, page("Register", login_form("This e-mail is already registered: log in instead.",
-                                                           True, setup)))
+                self.send(400, self.page("Register", login_form("This e-mail is already registered: log in instead.",
+                                                                True, setup)))
                 return
             if first:
                 SETUP_TOKEN = ""
+            if active:
                 write_key_map()
             new = query("SELECT id FROM users WHERE username = ?", (username,))[0]
             self.redirect("/", self.session_cookie(new["id"]))
@@ -697,14 +797,14 @@ class Handler(BaseHTTPRequestHandler):
             ip = self.client_ip()
             keys = [((ip, username), LOGIN_MAX_PER_USER), (ip, LOGIN_MAX_PER_CLIENT)]
             if too_many_failures(keys):
-                self.send(429, page("Log in", login_form("Too many failed attempts. Try again in a few minutes.",
+                self.send(429, self.page("Log in", login_form("Too many failed attempts. Try again in a few minutes.",
                                                         next_url=self.safe_next(data.get("next", "")))))
                 return
             rows = query("SELECT * FROM users WHERE username = ? OR lower(email) = ? ORDER BY id LIMIT 1",
                          (username, username))
             if not rows or not check_password(data.get("password", ""), rows[0]["password"]):
                 record_failure(keys)
-                self.send(401, page("Log in", login_form("Wrong e-mail or password.",
+                self.send(401, self.page("Log in", login_form("Wrong e-mail or password.",
                                                         next_url=self.safe_next(data.get("next", "")))))
                 return
             with FAILURES_LOCK:
@@ -735,24 +835,42 @@ class Handler(BaseHTTPRequestHandler):
             write_key_map()
             self.redirect("/")
         elif self.path.startswith("/admin/") and user and user["role"] == "admin" and user["status"] == "active":
-            self.admin_action(user)
+            self.admin_action(user, data)
         else:
-            self.send(403, page("Forbidden", '<div class="card">Not allowed.</div>'))
+            self.send(403, self.page("Forbidden", '<div class="card">Not allowed.</div>'))
 
-    def admin_action(self, admin: sqlite3.Row) -> None:
+    def admin_action(self, admin: sqlite3.Row, data: Dict[str, str]) -> None:
         if self.path == "/admin/approve-all":
             for row in query("SELECT id FROM users WHERE status = 'pending'"):
                 query("UPDATE users SET status = 'active', api_key = ? WHERE id = ?", (new_key(), row["id"]))
             write_key_map()
-            self.redirect("/")
+            self.redirect("/admin")
             return
-        match = re.match(r"^/admin/(\d+)/(approve|block|unblock|delete|regen|promote|demote)$", self.path)
+        if self.path == "/admin/settings":
+            self.save_settings(admin, data)
+            return
+        match = re.match(r"^/admin/(\d+)/(approve|block|unblock|delete|regen|password|promote|demote)$", self.path)
         if not match:
-            self.send(404, page("Not found", '<div class="card">Not found.</div>'))
+            self.send(404, self.page("Not found", '<div class="card">Not found.</div>'))
             return
         target, action = int(match.group(1)), match.group(2)
-        if target == admin["id"] and action in ("block", "delete", "demote"):
-            self.send(400, page("Not allowed", '<div class="card">You cannot do this to your own account.</div>', admin))
+        if target == admin["id"] and action in ("block", "delete", "demote", "password"):
+            self.send(400, self.page("Not allowed", '<div class="card">You cannot do this to your own account.</div>',
+                                     admin))
+            return
+        if action == "password":
+            rows = query("SELECT username FROM users WHERE id = ?", (target,))
+            if not rows:
+                self.redirect("/admin")
+                return
+            password = secrets.token_urlsafe(9)
+            query("UPDATE users SET password = ? WHERE id = ?", (hash_password(password), target))
+            query("DELETE FROM sessions WHERE user_id = ?", (target,))
+            self.send(200, self.page("Password reset", (
+                '<div class="card"><h2>New password for {}</h2><p>Give it to this person; it is shown only once. '
+                'They are logged out everywhere.</p>{}<p><a class="btn" href="/admin">Back to administration</a></p>'
+                '</div>').format(html.escape(rows[0]["username"]), copyable("new-password", password)), admin),
+                      headers={"Cache-Control": "no-store"})
             return
         statements = {
             "approve": ("UPDATE users SET status = 'active', api_key = COALESCE(api_key, ?) WHERE id = ?", (new_key(), target)),
@@ -768,7 +886,25 @@ class Handler(BaseHTTPRequestHandler):
         if action in ("block", "delete"):
             query("DELETE FROM sessions WHERE user_id = ?", (target,))
         write_key_map()
-        self.redirect("/")
+        self.redirect("/admin")
+
+    def save_settings(self, admin: sqlite3.Row, data: Dict[str, str]) -> None:
+        domains = domains_of(data.get("domains", ""))
+        notice = data.get("notice", "").replace("\r\n", "\n")
+        bad = [d for d in domains if not DOMAIN_RE.match(d)]
+        error = ("Not a domain: {}.".format(", ".join(bad)) if bad else
+                 "The notice is too long ({} characters at most).".format(NOTICE_MAX) if len(notice) > NOTICE_MAX else "")
+        if error:
+            self.send(400, self.page("Administration", admin_cards(admin["id"], error=error), admin))
+            return
+        values = {"registration": "open" if data.get("registration") == "open" else "closed",
+                  "domains": ", ".join(dict.fromkeys(domains)),
+                  "auto_approve": "on" if data.get("auto_approve") == "on" else "",
+                  "notice": notice}
+        for key, value in values.items():
+            query("INSERT INTO settings (key, value) VALUES (?, ?) "
+                  "ON CONFLICT(key) DO UPDATE SET value = excluded.value", (key, value))
+        self.redirect("/admin?saved=1#settings")
 
 
 def main() -> None:
