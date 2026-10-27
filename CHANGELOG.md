@@ -8,6 +8,11 @@ Dates use ISO 8601 (YYYY-MM-DD).
 
 ## [Unreleased]
 
+### Changed
+
+- `config/nginx.example.conf`: plain HTTP sent to the TLS port is redirected to
+  HTTPS (301) instead of getting nginx's 400 error page.
+
 ### Fixed
 
 - `scripts/start-proxy.sh --reload` reloads nginx with `nginx -s reload` inside

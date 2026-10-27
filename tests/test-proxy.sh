@@ -126,6 +126,10 @@ expect_status() {
     if [[ "$got" == "$want" ]]; then ok "$desc"; else not_ok "$desc (got ${got}, expected ${want})"; fi
 }
 
+echo "# plain HTTP"
+got="$(curl -s --noproxy '*' -o /dev/null -w '%{http_code} %{redirect_url}' "http://localhost:${HTTPS_PORT}/v1/models")"
+if [[ "$got" == "301 https://localhost:${HTTPS_PORT}/v1/models" ]]; then ok "plain HTTP on the TLS port -> 301 to HTTPS"; else not_ok "plain HTTP on the TLS port -> 301 to HTTPS (got ${got})"; fi
+
 echo "# authentication"
 expect_status 401 "no API key -> 401" GET /v1/models
 expect_status 401 "unknown API key -> 401" GET /v1/models "cdm_$(printf '0%.0s' {1..64})"
