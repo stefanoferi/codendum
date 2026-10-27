@@ -8,7 +8,8 @@ PROTOTYPE. Standard library only (http.server + sqlite3).
 - Users register and wait for approval. While there is no administrator, the
   panel prints a one-time setup link to its log; the account created through
   that link becomes the first administrator.
-- Failed logins are limited per client address and username.
+- People sign in with their e-mail address; the registration form checks it
+  while it is typed. Failed logins are limited per client address and e-mail.
 - Each active user gets an API key; the nginx key map is rewritten on every
   change and the proxy is reloaded with CODENDUM_WEB_RELOAD_CMD.
 - /auth/verify answers nginx auth_request, so that Open WebUI can trust the
@@ -81,7 +82,10 @@ LOGO = os.path.join(HERE, "..", "docs", "_static", "codendum-logo.png")
 SETUP_CODE_TTL = 600
 MODEL_RE = re.compile(r"^[A-Za-z0-9._:/-]{1,128}$")
 
-USERNAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{2,31}$")
+# New accounts use the e-mail as user name (also the label in the key map and
+# the access log); accounts created before keep their user name.
+EMAIL_RE = re.compile(r"^[a-z0-9._%+-]{1,64}@[a-z0-9-]{1,63}(\.[a-z0-9-]{1,63})+$")
+CHECKS_PER_CLIENT = 60  # registration e-mail checks per address in LOGIN_WINDOW
 HOST_RE = re.compile(r"^(?:[A-Za-z0-9.-]{1,253}|\[[0-9A-Fa-f:.]{2,45}\])$")
 SESSION_COOKIE = "codendum_session"
 SESSION_TTL = 12 * 3600
@@ -377,7 +381,8 @@ th{color:var(--muted);font-weight:500}form.inline{display:inline}
 .active{color:var(--ok)}.pending{color:var(--pend)}.blocked{color:var(--warn)}
 .stats{display:flex;gap:28px;flex-wrap:wrap}.stat b{display:block;font-size:24px}.stat span{color:var(--muted);font-size:13px}
 input{font:inherit;width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);margin:4px 0 12px}
-.narrow{max-width:380px;margin:60px auto}.muted{color:var(--muted)}.err{color:var(--warn)}
+.narrow{width:100%;max-width:380px;margin:60px auto}.muted{color:var(--muted)}.err{color:var(--warn)}
+.hint{min-height:1.4em;margin:-6px 0 10px;font-size:13px}.hint.ok{color:var(--ok)}
 h3{font-size:15px;margin:18px 0 6px}.steps{padding-left:20px}.steps li{margin:0 0 16px}.steps p{margin:8px 0 4px}
 .copy{display:flex;gap:8px;align-items:flex-start}.copy pre{flex:1;margin:0;white-space:pre-wrap;word-break:break-all}
 details{margin-top:8px}summary{cursor:pointer;color:var(--link)}
@@ -399,7 +404,7 @@ def page(title: str, body: str, user: Optional[sqlite3.Row] = None) -> bytes:
 
 def login_form(error: str = "", register: bool = False, setup: str = "") -> str:
     action, label = ("/register", "Create account") if register else ("/login", "Log in")
-    extra = ("<label>E-mail<input name=email type=email required></label>" if register else "")
+    extra = ""
     if register and setup:
         label = "Create the administrator account"
         extra += '<input type=hidden name=setup value="{}">'.format(html.escape(setup))
@@ -407,10 +412,29 @@ def login_form(error: str = "", register: bool = False, setup: str = "") -> str:
               else '<p>No account yet?</p><a class="btn wide" href="/register">Register</a>')
     err = '<p class="err">{}</p>'.format(html.escape(error)) if error else ""
     return ('<div class="card narrow"><h2>{label}</h2>{err}<form method="post" action="{action}">'
-            '<label>Username<input name=username required autocomplete=username></label>{extra}'
-            '<label>Password<input name=password type=password required minlength=8></label>'
-            '<button class="primary wide">{label}</button></form><div class="switch">{switch}</div></div>').format(
-        label=label, err=err, action=action, extra=extra, switch=switch)
+            '<label>E-mail<input id=email name=email required inputmode=email autocomplete=username></label>'
+            '{hint}{extra}<label>Password<input name=password type=password required minlength=8></label>'
+            '<button class="primary wide">{label}</button></form><div class="switch">{switch}</div></div>{script}').format(
+        label=label, err=err, action=action, extra=extra, switch=switch,
+        hint='<p class="hint" id="email-msg" aria-live="polite"></p>' if register else "",
+        script=EMAIL_CHECK_JS if register else "")
+
+
+# Checks the e-mail while it is typed (POST, so that addresses stay out of URLs and logs).
+EMAIL_CHECK_JS = """<script>(function(){var e=document.getElementById("email"),m=document.getElementById("email-msg"),t;
+e.addEventListener("input",function(){clearTimeout(t);m.textContent="";t=setTimeout(async function(){
+var v=e.value.trim();if(!v)return;try{var r=await(await fetch("/register/check",{method:"POST",
+headers:{"Content-Type":"application/x-www-form-urlencoded"},body:"email="+encodeURIComponent(v)})).json();
+m.textContent=r.message;m.className="hint "+(r.ok?"ok":"err")}catch(x){}},400)})})()</script>"""
+
+
+def email_problem(email: str) -> str:
+    """Why an e-mail cannot be registered, or "" if it can."""
+    if len(email) > 254 or not EMAIL_RE.match(email):
+        return "This is not a valid e-mail address."
+    if query("SELECT 1 FROM users WHERE username = ? OR lower(email) = ?", (email, email)):
+        return "This e-mail is already registered: log in instead."
+    return ""
 
 
 def user_card(user: sqlite3.Row, host: str) -> str:
@@ -497,7 +521,7 @@ def admin_cards(me: int) -> str:
         trs.append('<tr><td><b>{}</b>{}<br><span class="muted">{}</span></td><td><span class="badge {}">{}</span></td>'
                    '<td class="muted">{}</td><td>{}</td></tr>'.format(
                        html.escape(r["username"]), " · admin" if r["role"] == "admin" else "",
-                       html.escape(r["email"]), r["status"], r["status"], r["created_at"][:16].replace("T", " "), forms))
+                       "" if r["username"] == r["email"].lower() else html.escape(r["email"]), r["status"], r["status"], r["created_at"][:16].replace("T", " "), forms))
     bulk = ('<form class="inline" method="post" action="/admin/approve-all"><button class="primary">'
             'Approve all ({})</button></form>'.format(pending) if pending else "")
     people = ('<div class="card"><h2>People {}</h2><table><tr><th>User</th><th>Status</th><th>Registered (UTC)</th>'
@@ -629,14 +653,11 @@ class Handler(BaseHTTPRequestHandler):
         data = self.form()
         user = self.current_user()
         if self.path == "/register":
-            username, email, password = data.get("username", "").lower(), data.get("email", ""), data.get("password", "")
-            setup = data.get("setup", "")
-            if not USERNAME_RE.match(username):
-                self.send(400, page("Register", login_form("Username: 3-32 lowercase letters, digits, . _ -", True, setup)))
-                return
-            if len(password) < 8 or "@" not in email:
-                self.send(400, page("Register", login_form("Use a valid e-mail and a password of 8+ characters.",
-                                                           True, setup)))
+            email, password = data.get("email", "").lower(), data.get("password", "")
+            username, setup = email, data.get("setup", "")
+            problem = email_problem(email) or ("" if len(password) >= 8 else "Use a password of 8 or more characters.")
+            if problem:
+                self.send(400, page("Register", login_form(problem, True, setup)))
                 return
             first = bool(setup)
             if first and not (SETUP_TOKEN and hmac.compare_digest(setup, SETUP_TOKEN)):
@@ -648,7 +669,8 @@ class Handler(BaseHTTPRequestHandler):
                       (username, email, hash_password(password), "admin" if first else "user",
                        "active" if first else "pending", new_key() if first else None, now_iso()))
             except sqlite3.IntegrityError:
-                self.send(400, page("Register", login_form("This username is taken.", True, setup)))
+                self.send(400, page("Register", login_form("This e-mail is already registered: log in instead.",
+                                                           True, setup)))
                 return
             if first:
                 SETUP_TOKEN = ""
@@ -656,20 +678,31 @@ class Handler(BaseHTTPRequestHandler):
             new = query("SELECT id FROM users WHERE username = ?", (username,))[0]
             self.redirect("/", self.session_cookie(new["id"]))
         elif self.path == "/login":
-            username = data.get("username", "").lower()
+            username = data.get("email", "").lower()
             ip = self.client_ip()
             keys = [((ip, username), LOGIN_MAX_PER_USER), (ip, LOGIN_MAX_PER_CLIENT)]
             if too_many_failures(keys):
                 self.send(429, page("Log in", login_form("Too many failed attempts. Try again in a few minutes.")))
                 return
-            rows = query("SELECT * FROM users WHERE username = ?", (username,))
+            rows = query("SELECT * FROM users WHERE username = ? OR lower(email) = ? ORDER BY id LIMIT 1",
+                         (username, username))
             if not rows or not check_password(data.get("password", ""), rows[0]["password"]):
                 record_failure(keys)
-                self.send(401, page("Log in", login_form("Wrong username or password.")))
+                self.send(401, page("Log in", login_form("Wrong e-mail or password.")))
                 return
             with FAILURES_LOCK:
                 FAILURES.pop((ip, username), None)
             self.redirect("/", self.session_cookie(rows[0]["id"]))
+        elif self.path == "/register/check":
+            keys = [(("check", self.client_ip()), CHECKS_PER_CLIENT)]
+            if too_many_failures(keys):
+                self.send(429, json.dumps({"ok": False, "message": "Too many checks: wait a few minutes."}).encode(),
+                          "application/json")
+                return
+            record_failure(keys)
+            problem = email_problem(data.get("email", "").strip().lower())
+            self.send(200, json.dumps({"ok": not problem, "message": problem or "OK, this e-mail can be used."}).encode(),
+                      "application/json")
         elif self.path == "/setup/new" and user and user["status"] == "active":
             query("DELETE FROM setup_codes WHERE user_id = ? OR expires <= ?", (user["id"], time.time()))
             query("INSERT INTO setup_codes VALUES (?, ?, ?)",

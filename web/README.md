@@ -2,7 +2,10 @@
 
 A small panel for a classroom, hackathon, lab or office:
 
-- people register themselves and wait for approval;
+- people register with their e-mail address, which is also what they log in
+  with; the form tells them at once if the address is invalid or already
+  registered (accounts created with a user name before keep it);
+- they then wait for approval;
 - the first administrator is created through a one-time setup link printed in
   the panel log; more administrators can be added later;
 - every approved person finds on their own page how to install OpenCode, a

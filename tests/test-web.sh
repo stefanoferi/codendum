@@ -69,12 +69,21 @@ S="${TMP_ROOT}/student.jar"
 echo "# registration and approval through the proxy"
 SETUP="$(docker logs "$WEB" 2>&1 | grep -oE 'register\?setup=[A-Za-z0-9_-]+' | head -1 | cut -d= -f2)"
 if [[ -n "$SETUP" ]]; then ok "panel logs a one-time setup link"; else not_ok "panel logs a one-time setup link"; fi
-check "student registers before any administrator" "${C[@]}" -o /dev/null -c "$S" -d "username=student1&email=s@example.org&password=password123" "${URL}/register"
+check "student registers before any administrator" "${C[@]}" -o /dev/null -c "$S" -d "email=s@example.org&password=password123" "${URL}/register"
 if page_of "$S" | grep -q 'Waiting for approval'; then ok "student waits for approval, does not become admin"; else not_ok "student waits for approval, does not become admin"; fi
-check "admin registers with the setup link" "${C[@]}" -o /dev/null -c "$A" -d "username=teacher&email=t@example.org&password=password123&setup=${SETUP}" "${URL}/register"
+check "admin registers with the setup link" "${C[@]}" -o /dev/null -c "$A" -d "email=T@Example.org&password=password123&setup=${SETUP}" "${URL}/register"
 if page_of "$A" | grep -q 'Approve all'; then ok "setup account is the administrator"; else not_ok "setup account is the administrator"; fi
-if [[ "$(code_of -d "username=intruder&email=i@example.org&password=password123&setup=${SETUP}" "${URL}/register")" == 400 ]]; then
+if [[ "$(code_of -d "email=i@example.org&password=password123&setup=${SETUP}" "${URL}/register")" == 400 ]]; then
     ok "setup link works only once"; else not_ok "setup link works only once"; fi
+echo "# e-mail as user name"
+check_email() { "${C[@]}" -d "email=$1" "${URL}/register/check"; }
+if check_email 's@example.org' | grep -q '"ok": false' && check_email 'S@EXAMPLE.ORG' | grep -q 'already registered'; then
+    ok "registration check: e-mail already registered (any case)"; else not_ok "registration check: e-mail already registered"; fi
+if check_email 'new.person@example.org' | grep -q '"ok": true'; then ok "registration check: free e-mail"; else not_ok "registration check: free e-mail"; fi
+if check_email 'not-an-email' | grep -q 'not a valid'; then ok "registration check: invalid e-mail"; else not_ok "registration check: invalid e-mail"; fi
+if [[ "$(code_of -d "email=s@example.org&password=password123" "${URL}/register")" == 400 ]]; then
+    ok "the same e-mail cannot register twice"; else not_ok "the same e-mail cannot register twice"; fi
+if page_of "$A" | grep -q 't@example.org'; then ok "header shows the e-mail as user name"; else not_ok "header shows the e-mail as user name"; fi
 check "admin approves everyone" "${C[@]}" -o /dev/null -b "$A" -X POST "${URL}/admin/approve-all"
 KEY="$("${C[@]}" -b "$S" "${URL}/" | grep -oE 'cdm_[0-9a-f]{64}' | head -1)"
 if [[ -n "$KEY" ]]; then ok "student sees an API key"; else not_ok "student sees an API key"; fi
@@ -134,17 +143,17 @@ if curl -fsSk --noproxy '*' --pinnedpubkey "$PIN" -o /dev/null "${URL}/ca.pem" &
     ok "pin matches the proxy key, a different key is refused"; else not_ok "pin matches the proxy key, a different key is refused"; fi
 
 echo "# block"
-SID="$(docker exec "$WEB" python3 -c "import sqlite3; print(sqlite3.connect('/data/web.sqlite').execute(\"select id from users where username='student1'\").fetchone()[0])")"
+SID="$(docker exec "$WEB" python3 -c "import sqlite3; print(sqlite3.connect('/data/web.sqlite').execute(\"select id from users where username='s@example.org'\").fetchone()[0])")"
 check "admin blocks the student" "${C[@]}" -o /dev/null -b "$A" -X POST "${URL}/admin/${SID}/block"
 sleep 1
 got="$("${C[@]}" -o /dev/null -w '%{http_code}' -H "Authorization: Bearer ${KEY}" "${URL}/v1/models")"
 if [[ "$got" == 401 ]]; then ok "blocked key is rejected"; else not_ok "blocked key is rejected (got ${got})"; fi
 
 echo "# login rate limit"
-for _ in 1 2 3 4 5; do code_of -d "username=student1&password=wrong-password" "${URL}/login" >/dev/null; done
-if [[ "$(code_of -d "username=student1&password=password123" "${URL}/login")" == 429 ]]; then
+for _ in 1 2 3 4 5; do code_of -d "email=s@example.org&password=wrong-password" "${URL}/login" >/dev/null; done
+if [[ "$(code_of -d "email=s@example.org&password=password123" "${URL}/login")" == 429 ]]; then
     ok "login refused after 5 failures, even with the right password"; else not_ok "login refused after 5 failures"; fi
-if [[ "$(code_of -d "username=teacher&password=password123" "${URL}/login")" == 303 ]]; then
+if [[ "$(code_of -d "email=t@example.org&password=password123" "${URL}/login")" == 303 ]]; then
     ok "other users can still log in"; else not_ok "other users can still log in"; fi
 
 finish
