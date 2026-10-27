@@ -8,6 +8,13 @@ Dates use ISO 8601 (YYYY-MM-DD).
 
 ## [Unreleased]
 
+### Fixed
+
+- `scripts/start-proxy.sh --reload` reloads nginx with `nginx -s reload` inside
+  the container instead of `docker kill --signal HUP`. Docker counted the kill
+  as a manual stop, so with `--restart unless-stopped` the proxy did not start
+  again after a reboot.
+
 ## [0.1.1] - 2026-10-01
 
 ### Changed

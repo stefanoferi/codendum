@@ -182,7 +182,8 @@ expect_exit 0 "--replace tests the config before replacing" clean_env FAKE_EXIST
 check "order: config test, stop, rm, run" bash -c "grep -E '^docker (run|stop|rm)' '$FAKE_DOCKER_LOG' | awk '{print (\$2 == \"run\" ? \$2 \$3 : \$2)}' | paste -sd, - | grep -qx 'run--rm,stop,rm,run--detach'"
 : >"$FAKE_DOCKER_LOG"
 expect_exit 0 "--reload" clean_env FAKE_EXISTS=1 PATH="${SHIM}:${PATH}" scripts/start-proxy.sh -e "$PROXY_ENV" --reload
-check "reload tests then signals nginx" bash -c "grep -E '^docker (exec|kill)' '$FAKE_DOCKER_LOG' | cut -d' ' -f2 | paste -sd, - | grep -qx 'exec,kill'"
+check "reload tests the config, then reloads nginx inside the container" bash -c "grep -E '^docker (exec|kill)' '$FAKE_DOCKER_LOG' | cut -d' ' -f2- | paste -sd, - | grep -qx 'exec codendum-proxy-test nginx -t -q,exec codendum-proxy-test nginx -s reload'"
+check "reload never uses docker kill (it would count as a manual stop)" bash -c "! grep -q '^docker kill' '$FAKE_DOCKER_LOG'"
 
 echo "# preflight.sh"
 expect_exit 0 "help" scripts/preflight.sh --help

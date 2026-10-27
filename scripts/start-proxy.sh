@@ -144,7 +144,10 @@ if [[ "$mode" == reload ]]; then
     require_cmd docker
     docker container inspect "$container" >/dev/null 2>&1 || die "proxy container '${container}' does not exist; start it first"
     docker exec "$container" nginx -t -q || die "configuration test failed; the running proxy was not changed"
-    docker kill --signal HUP "$container" >/dev/null
+    # Reload inside the container. "docker kill --signal HUP" would work too, but
+    # Docker records any "docker kill" as a manual stop, and a container with
+    # --restart unless-stopped is then not started again after a reboot.
+    docker exec "$container" nginx -s reload
     log_info "Proxy configuration reloaded."
     exit 0
 fi
