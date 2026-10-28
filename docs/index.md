@@ -56,6 +56,7 @@ service. They follow the order of a first installation.
 | [`config/profiles/`](https://github.com/stefanoferi/codendum/blob/main/config/profiles/) | Serving profiles (`classroom-64k`, `classroom-64k-high-concurrency`, `deep-128k`) |
 | [`config/nginx.example.conf`](https://github.com/stefanoferi/codendum/blob/main/config/nginx.example.conf) | HTTPS reverse proxy |
 | [`config/opencode.example.json`](https://github.com/stefanoferi/codendum/blob/main/config/opencode.example.json) | OpenCode V2 provider configuration |
+| [`web/`](https://github.com/stefanoferi/codendum/blob/main/web/) | Web panel (preview): registration, keys, OpenCode setup, dashboard |
 | [`.env.example`](https://github.com/stefanoferi/codendum/blob/main/.env.example) | All server settings, no secrets |
 
 ## Contents
@@ -67,6 +68,7 @@ sizing
 installation
 proxy
 opencode
+web
 smoke-test
 benchmark
 profiles

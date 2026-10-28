@@ -90,6 +90,9 @@ code_of() { "${C[@]}" -o /dev/null -w '%{http_code}' "$@"; }
 A="${TMP_ROOT}/admin.jar"
 S="${TMP_ROOT}/student.jar"
 
+HEAD_SHA="$(git rev-parse HEAD)"
+if "${C[@]}" "${URL}/login" | grep -q "href=\"https://codendum.ai/\".*href=\"https://github.com/stefanoferi/codendum/commit/${HEAD_SHA}\".*<code>${HEAD_SHA:0:7}</code>"; then
+    ok "footer: links to the site and GitHub, and the commit"; else not_ok "footer: links to the site and GitHub, and the commit"; fi
 echo "# registration and approval through the proxy"
 SETUP="$(docker logs "$WEB" 2>&1 | grep -oE 'register\?setup=[A-Za-z0-9_-]+' | head -1 | cut -d= -f2)"
 if [[ -n "$SETUP" ]]; then ok "panel logs a one-time setup link"; else not_ok "panel logs a one-time setup link"; fi

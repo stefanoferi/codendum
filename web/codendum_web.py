@@ -665,6 +665,8 @@ a.btn.wide{color:var(--link);border:2px solid var(--link);font-weight:600}
 header button{background:#fff;color:#1d2433;border-color:#d0d5dd}header .muted{color:#475467}
 header a{color:#325bd1;font-weight:600}  /* the colour of the word in the logo */
 header img{height:40px}main{max-width:980px;margin:24px auto;padding:0 16px;display:grid;gap:18px}
+footer{max-width:980px;margin:8px auto 28px;padding:0 16px;text-align:center;color:var(--muted);font-size:13px;line-height:1.8}
+footer a{color:inherit}footer code{font-size:12px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
 h2{font-size:16px;margin:0 0 12px}code,.key{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}
 .key{display:block;padding:10px;border:1px dashed var(--line);border-radius:8px;word-break:break-all;margin:8px 0}
@@ -735,6 +737,34 @@ MENU_JS = ("document.addEventListener('click',function(e){document.querySelector
            ".forEach(function(d){if(!d.contains(e.target))d.removeAttribute('open')})});")
 
 
+def source_commit() -> str:
+    """Commit of the repository the panel runs from, read from .git without
+    the git command; empty when there is no repository."""
+    git = os.path.join(HERE, "..", ".git")
+    try:
+        with open(os.path.join(git, "HEAD"), encoding="ascii") as handle:
+            head = handle.read().strip()
+        if not head.startswith("ref: "):
+            sha = head
+        elif os.path.exists(os.path.join(git, head[5:])):
+            with open(os.path.join(git, head[5:]), encoding="ascii") as handle:
+                sha = handle.read().strip()
+        else:
+            with open(os.path.join(git, "packed-refs"), encoding="ascii") as handle:
+                sha = next((line.split()[0] for line in handle if line.rstrip().endswith(" " + head[5:])), "")
+    except (OSError, UnicodeDecodeError):
+        return ""
+    return sha if re.match(r"^[0-9a-f]{40}$", sha) else ""
+
+
+COMMIT = source_commit()
+REPOSITORY = "https://github.com/stefanoferi/codendum"
+FOOTER = ('<footer>Codendum © 2026 Stefano Noferi · Apache License 2.0 · <a href="https://codendum.ai/">codendum.ai</a>'
+          ' · <a href="{r}">GitHub</a>{c}</footer>').format(
+              r=REPOSITORY, c=' · <a href="{}/commit/{}" title="{}"><code>{}</code></a>'.format(
+                  REPOSITORY, COMMIT, COMMIT, COMMIT[:7]) if COMMIT else "")
+
+
 def page(title: str, body: str, user: Optional[sqlite3.Row] = None, csrf: str = "") -> bytes:
     right = ""
     if user:
@@ -752,9 +782,9 @@ def page(title: str, body: str, user: Optional[sqlite3.Row] = None, csrf: str = 
     return ("<!doctype html><html lang=en><head><meta charset=utf-8>"
             "<meta name=viewport content='width=device-width,initial-scale=1'><title>{t} · Codendum</title>"
             "<style>{css}</style></head><body><header><img src='/logo.png' alt='Codendum'>{r}</header>"
-            "<main>{b}</main><script>function copy(id){{navigator.clipboard.writeText("
+            "<main>{b}</main>{f}<script>function copy(id){{navigator.clipboard.writeText("
             "document.getElementById(id).innerText)}}{menu}</script></body></html>").format(
-                t=html.escape(title), css=CSS, r=right, b=body, menu=MENU_JS).encode()
+                t=html.escape(title), css=CSS, r=right, b=body, f=FOOTER, menu=MENU_JS).encode()
 
 
 def login_form(error: str = "", register: bool = False, setup: str = "", next_url: str = "") -> str:

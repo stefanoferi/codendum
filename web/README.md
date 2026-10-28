@@ -34,6 +34,9 @@ A small panel for a classroom, hackathon, lab or office:
     domains allowed to register (optionally approved at once), a notice shown
     at the top of every personal page, and web search in the chat.
 
+The footer of every page credits the project, links to codendum.ai and GitHub,
+and shows the commit the panel runs from (read from `.git` at start).
+
 The panel writes the keys of approved users to `api-keys-web.map`, next to the
 `api-keys.map` from `gen-api-keys.sh`, and reloads the proxy with
 `nginx -s reload` through the Docker socket. Keys from `gen-api-keys.sh` keep

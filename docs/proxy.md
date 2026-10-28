@@ -6,7 +6,8 @@ TLS, accepts only the allowed networks, maps each API key to a user, applies
 per-user limits and forwards two endpoints to vLLM. Everything else, including
 `/health`, `/metrics`, `/tokenize`, `/invocations` and the rest of the vLLM API,
 stays reachable from the host only. The proxy serves the API for OpenCode and
-other OpenAI-compatible clients; it has no web interface.
+other OpenAI-compatible clients. With the optional [web panel](web.md), it
+also publishes the panel's pages on `/`.
 
 **1. Create the proxy directory.** `--init` creates `/etc/codendum/proxy`
 (`CODENDUM_PROXY_DIR`) with `conf.d/`, `tls/` and `logs/`, and copies the example
