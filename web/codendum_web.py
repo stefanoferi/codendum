@@ -394,6 +394,7 @@ border-bottom:3px solid var(--brand);box-shadow:0 2px 10px rgba(16,24,40,.18)}
 .switch{margin-top:18px;padding-top:14px;border-top:1px solid var(--line)}.switch p{margin:0 0 8px;color:var(--ink)}
 a.btn.wide{color:var(--link);border:2px solid var(--link);font-weight:600}
 header button{background:#fff;color:#1d2433;border-color:#d0d5dd}header .muted{color:#475467}
+header a{color:#325bd1;font-weight:600}  /* the colour of the word in the logo */
 header img{height:40px}main{max-width:980px;margin:24px auto;padding:0 16px;display:grid;gap:18px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
 h2{font-size:16px;margin:0 0 12px}code,.key{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}
