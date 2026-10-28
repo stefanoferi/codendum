@@ -8,9 +8,11 @@ A small panel for a classroom, hackathon, lab or office:
 - they then wait for approval;
 - the first administrator is created through a one-time setup link printed in
   the panel log; more administrators can be added later;
-- every approved person finds on their own page how to install OpenCode, a
-  one-time command that sets it up for Codendum, the link to the chat, and
-  their API key;
+- every approved person finds on their own page a three-step guide (install
+  OpenCode, a one-time command that sets it up for Codendum, start), the link
+  to the chat, and their API key;
+- the profile menu in the header leads to the profile page, where people
+  change their password (their other sessions are logged out);
 - administrators approve (one or all), block, unblock, delete, renew keys,
   reset passwords and grant the administrator role on `/admin`;
 - the same page holds a few settings: registration open or closed, the e-mail

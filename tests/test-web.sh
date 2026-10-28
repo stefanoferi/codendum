@@ -187,6 +187,19 @@ if [[ "$(code_of -c "$S" --data-urlencode "email=s@example.org" --data-urlencode
     [[ "$(code_of -d "email=s@example.org&password=password123" "${URL}/login")" == 401 ]]; then
     ok "the new password works, the old one does not"; else not_ok "the new password works, the old one does not"; fi
 
+echo "# profile"
+S2="${TMP_ROOT}/student2.jar"
+"${C[@]}" -o /dev/null -c "$S2" --data-urlencode "email=s@example.org" --data-urlencode "password=${NEWPW}" "${URL}/login"
+if page_of "$S" | grep -q 'href="/profile">Profile and password'; then ok "profile menu in the header"; else not_ok "profile menu in the header"; fi
+if [[ "$(post "$S" /profile/password "current=wrong-password&password=password456&repeat=password456")" == 400 &&
+      "$(post "$S" /profile/password "current=${NEWPW}&password=password456&repeat=password789")" == 400 ]]; then
+    ok "password change refused: wrong current password, different repeat"; else not_ok "password change refused when wrong"; fi
+if [[ "$(post "$S" /profile/password "current=${NEWPW}&password=password456&repeat=password456")" == 303 ]] &&
+    [[ "$(code_of -b "$S" "${URL}/")" == 200 && "$(code_of -b "$S2" "${URL}/")" == 303 ]]; then
+    ok "password changed: this session stays, the others are logged out"; else not_ok "password changed: sessions"; fi
+if [[ "$(code_of -d "email=s@example.org&password=password456" "${URL}/login")" == 303 ]]; then
+    ok "the changed password works"; else not_ok "the changed password works"; fi
+
 echo "# block"
 if [[ "$(post "$A" "/admin/${SID}/block")" == 303 ]]; then ok "admin blocks the student"; else not_ok "admin blocks the student"; fi
 sleep 1
@@ -194,7 +207,7 @@ got="$("${C[@]}" -o /dev/null -w '%{http_code}' -H "Authorization: Bearer ${KEY}
 if [[ "$got" == 401 ]]; then ok "blocked key is rejected"; else not_ok "blocked key is rejected (got ${got})"; fi
 
 echo "# login rate limit"
-for _ in 1 2 3 4; do code_of -d "email=s@example.org&password=wrong-password" "${URL}/login" >/dev/null; done
+for _ in 1 2 3 4 5; do code_of -d "email=s@example.org&password=wrong-password" "${URL}/login" >/dev/null; done
 if [[ "$(code_of -d "email=s@example.org&password=password123" "${URL}/login")" == 429 ]]; then
     ok "login refused after 5 failures, even with the right password"; else not_ok "login refused after 5 failures"; fi
 if [[ "$(code_of -d "email=t@example.org&password=password123" "${URL}/login")" == 303 ]]; then

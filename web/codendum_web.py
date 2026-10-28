@@ -410,7 +410,15 @@ th{color:var(--muted);font-weight:500}form.inline{display:inline}
 input{font:inherit;width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);margin:4px 0 12px}
 .narrow{width:100%;max-width:380px;margin:60px auto}.muted{color:var(--muted)}.err{color:var(--warn)}
 .hint{min-height:1.4em;margin:-6px 0 10px;font-size:13px}.hint.ok{color:var(--ok)}
-h3{font-size:15px;margin:18px 0 6px}.steps{padding-left:20px}.steps li{margin:0 0 16px}.steps p{margin:8px 0 4px}
+h3{font-size:15px;margin:18px 0 10px}
+.steps{list-style:none;padding:0;margin:0;display:grid;gap:12px}
+.step{border:1px solid var(--line);border-left:4px solid var(--brand);border-radius:10px;padding:14px 16px}
+.step-head{display:flex;gap:12px;align-items:center}.step-head b{display:block}.step-head .muted{font-size:13px}
+.num{flex:none;width:32px;height:32px;border-radius:50%;background:var(--brand);color:#fff;font-weight:700;
+display:flex;align-items:center;justify-content:center}
+.step-body{margin-left:44px}.step-body p{margin:10px 0 4px}
+.os{font-weight:600;font-size:13px}.os span{font-weight:400;color:var(--muted);margin-left:4px}
+@media (max-width:600px){.step-body{margin-left:0}}
 .copy{display:flex;gap:8px;align-items:flex-start}.copy pre{flex:1;margin:0;white-space:pre-wrap;word-break:break-all}
 details{margin-top:8px}summary{cursor:pointer;color:var(--link)}
 nav{display:flex;gap:14px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
@@ -418,8 +426,27 @@ textarea{font:inherit;width:100%;min-height:70px;padding:8px 10px;border:1px sol
 background:var(--bg);color:var(--ink);margin:4px 0 12px}
 label.check{display:flex;gap:8px;align-items:center;margin:4px 0}label.check input{width:auto;margin:0}
 .notice{border-left:4px solid var(--brand);white-space:pre-line}.ok-msg{color:var(--ok)}
-.field-help{margin:-8px 0 12px;font-size:13px}
+.field-help{margin:-8px 0 12px;font-size:13px}.narrow-card{max-width:480px}
+.menu{position:relative}.menu summary{list-style:none;display:flex;gap:6px;align-items:center;color:#1d2433;
+padding:6px 10px;border:1px solid #d0d5dd;border-radius:8px}.menu summary::-webkit-details-marker{display:none}
+.menu summary::after{content:"";border:5px solid transparent;border-top-color:currentColor;margin-top:5px}
+.menu-list{position:absolute;right:0;top:calc(100% + 6px);z-index:10;min-width:220px;background:#fff;
+border:1px solid #d0d5dd;border-radius:10px;box-shadow:0 8px 24px rgba(16,24,40,.18);padding:8px;display:grid;gap:2px}
+.menu-list>*{padding:8px 10px;border-radius:6px}.menu-list a:hover{background:#f2f4f7}
+.menu-list form{padding:0}.menu-list button{width:100%;text-align:left;border:0;background:none;padding:8px 10px;color:#1d2433}
+.menu-list button:hover{background:#f2f4f7}.menu-list .muted{font-size:13px;border-bottom:1px solid #eaecf0;
+border-radius:0;word-break:break-all}
+.menu-list .small-only{display:none}
+@media (max-width:600px){header{padding:10px 14px}header img{height:32px}.menu summary span,nav>a{display:none}
+.menu-list .small-only{display:block}}
 """
+
+
+PERSON_ICON = ('<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
+               'aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg>')
+# Closes the profile menu on a click outside it.
+MENU_JS = ("document.addEventListener('click',function(e){document.querySelectorAll('details.menu[open]')"
+           ".forEach(function(d){if(!d.contains(e.target))d.removeAttribute('open')})});")
 
 
 def page(title: str, body: str, user: Optional[sqlite3.Row] = None, csrf: str = "") -> bytes:
@@ -427,8 +454,11 @@ def page(title: str, body: str, user: Optional[sqlite3.Row] = None, csrf: str = 
     if user:
         nav = ('<a href="/">My access</a> <a href="/admin">Administration</a> '
                if user["role"] == "admin" and user["status"] == "active" else "")
-        right = ('<nav>{}<span class="muted">{}</span> <form class="inline" method="post" action="/logout">'
-                 '<button>Log out</button></form></nav>').format(nav, html.escape(user["username"]))
+        right = ('<nav>{}<details class="menu"><summary aria-label="Profile menu">{icon}<span>{name}</span>'
+                 '</summary><div class="menu-list"><span class="muted">{name}</span>{small}<a href="/profile">'
+                 'Profile and password</a><form method="post" action="/logout"><button>Log out</button></form></div>'
+                 '</details></nav>').format(nav, icon=PERSON_ICON, name=html.escape(user["username"]),
+                                            small=nav.replace("<a ", '<a class="small-only" '))
     if csrf:
         right, body = (re.sub(r'(<form [^>]*method="post"[^>]*>)',
                               r'\1<input type=hidden name=csrf value="{}">'.format(csrf), part)
@@ -437,8 +467,8 @@ def page(title: str, body: str, user: Optional[sqlite3.Row] = None, csrf: str = 
             "<meta name=viewport content='width=device-width,initial-scale=1'><title>{t} · Codendum</title>"
             "<style>{css}</style></head><body><header><img src='/logo.png' alt='Codendum'>{r}</header>"
             "<main>{b}</main><script>function copy(id){{navigator.clipboard.writeText("
-            "document.getElementById(id).innerText)}}</script></body></html>").format(
-                t=html.escape(title), css=CSS, r=right, b=body).encode()
+            "document.getElementById(id).innerText)}}{menu}</script></body></html>").format(
+                t=html.escape(title), css=CSS, r=right, b=body, menu=MENU_JS).encode()
 
 
 def login_form(error: str = "", register: bool = False, setup: str = "", next_url: str = "") -> str:
@@ -509,9 +539,10 @@ def user_card(user: sqlite3.Row, host: str) -> str:
         if rows:
             pin, url = spki_pin(chain[0]), "{}/s/{}".format(base, rows[0]["code"])
             minutes = max(1, int((rows[0]["expires"] - time.time()) // 60))
-            connect = ('<p>macOS and Linux, in a terminal:</p>{sh}<p>Windows, in PowerShell (an up-to-date '
-                       'Windows 10 or 11: <code>curl.exe --version</code> must show 7.58.1 or later):</p>{ps}'
-                       '<p class="muted">Works once, for {m} more minutes. It is personal: it contains your key.</p>'
+            connect = ('<p class="os">macOS · Linux <span>Terminal</span></p>{sh}<p class="os">Windows '
+                       '<span>PowerShell</span></p>{ps}<p class="muted">Windows needs <code>curl.exe</code> 7.58.1 or '
+                       'later (up-to-date Windows 10 and 11). The command works once, for {m} more minutes, and it is '
+                       'personal: it contains your key.</p>'
                        '<form method="post" action="/setup/new"><button>New command</button></form>').format(
                 sh=copyable("cmd-sh", "curl -fsSk --pinnedpubkey '{}' {} | sh".format(pin, url)),
                 ps=copyable("cmd-ps", "curl.exe -fsSk --pinnedpubkey '{}' {}.ps1 | Out-String | Invoke-Expression".format(
@@ -521,13 +552,17 @@ def user_card(user: sqlite3.Row, host: str) -> str:
                        '<form method="post" action="/setup/new"><button class="primary">Create the setup command'
                        '</button></form>')
     return ('<div class="card"><h2>Your access</h2>{chat}<h3>Set up OpenCode on your computer</h3><ol class="steps">'
-            '<li><b>Install OpenCode</b> (once).<p>macOS and Linux, in a terminal:</p>{inst_sh}'
-            '<p>Windows, in PowerShell:</p>{inst_ps}<p class="muted">Then open a new terminal window.</p></li>'
-            '<li><b>Connect OpenCode to Codendum.</b>{connect}</li>'
-            '<li><b>Start.</b> In your project folder run <code>opencode</code>: the model <code>codendum/…</code> is '
-            'already selected.<p class="muted">macOS 15 or later: if OpenCode reports <code>EHOSTUNREACH</code>, '
-            'allow it (and your terminal app) in System Settings → Privacy &amp; Security → Local Network, then '
-            'restart it.</p></li></ol>'
+            + step(1, "Install OpenCode", "Once per computer.",
+                   '<p class="os">macOS · Linux <span>Terminal</span></p>{inst_sh}'
+                   '<p class="os">Windows <span>PowerShell</span></p>{inst_ps}'
+                   '<p class="muted">Then open a new terminal window.</p>')
+            + step(2, "Connect OpenCode to Codendum", "Saves your key and the server certificate, and selects "
+                   "the model.", "{connect}")
+            + step(3, "Start coding", "In your project folder:",
+                   '{start}<p class="muted">macOS 15 or later: if OpenCode reports <code>EHOSTUNREACH</code>, allow it '
+                   '(and your terminal app) in System Settings → Privacy &amp; Security → Local Network, then restart '
+                   'it.</p>')
+            + '</ol>'
             '<details><summary>API key and certificate, for other tools</summary>'
             '<span class="key" id="key">{key}</span><button onclick="copy(\'key\')">Copy</button> '
             '<form class="inline" method="post" action="/key/regenerate"><button>Regenerate</button></form>'
@@ -535,6 +570,7 @@ def user_card(user: sqlite3.Row, host: str) -> str:
             '<p class="muted">Keep the key private. Regenerating it disables the old one immediately; then run '
             'step 2 again.</p></details></div>').format(
         chat=chat, inst_sh=copyable("inst-sh", "curl -fsSL https://opencode.ai/v2/install | bash"),
+        start=copyable("start", "opencode"),
         inst_ps=copyable("inst-ps", WINDOWS_INSTALL), connect=connect, key=html.escape(user["api_key"]),
         base=html.escape(base))
 
@@ -550,9 +586,33 @@ if ("$p" -notlike "*$bin*") { [Environment]::SetEnvironmentVariable('Path', "$p;
 $env:Path += ";$bin"; opencode --version"""
 
 
+def step(number: int, title: str, lead: str, content: str) -> str:
+    return ('<li class="step"><div class="step-head"><span class="num" aria-hidden="true">{}</span><div><b>{}</b>'
+            '<span class="muted">{}</span></div></div><div class="step-body">{}</div></li>').format(
+        number, title, lead, content)
+
+
 def copyable(element_id: str, text: str) -> str:
     return '<div class="copy"><pre id="{i}">{t}</pre><button onclick="copy(\'{i}\')">Copy</button></div>'.format(
         i=element_id, t=html.escape(text))
+
+
+def profile_card(user: sqlite3.Row, message: str = "", error: str = "") -> str:
+    flash = ('<p class="err">{}</p>'.format(html.escape(error)) if error else
+             '<p class="ok-msg">{}</p>'.format(html.escape(message)) if message else "")
+    status = {"active": "Approved", "pending": "Waiting for approval", "blocked": "Blocked"}.get(user["status"], "")
+    return ('<div class="card"><h2>Profile</h2><table><tr><th>E-mail</th><td>{email}</td></tr>'
+            '<tr><th>Role</th><td>{role}</td></tr><tr><th>Status</th><td><span class="badge {st}">{status}</span></td>'
+            '</tr><tr><th>Registered (UTC)</th><td>{reg}</td></tr></table></div>'
+            '<div class="card narrow-card"><h2>Change password</h2>{flash}<form method="post" action="/profile/password">'
+            '<input type=hidden name=username value="{email}" autocomplete=username>'
+            '<label>Current password<input name=current type=password required autocomplete=current-password></label>'
+            '<label>New password<input name=password type=password required minlength=8 '
+            'autocomplete=new-password></label><label>New password again<input name=repeat type=password required '
+            'minlength=8 autocomplete=new-password></label><button class="primary">Change password</button></form>'
+            '<p class="muted">Your other sessions are logged out; this one stays open.</p></div>').format(
+        email=html.escape(user["email"].lower()), role="Administrator" if user["role"] == "admin" else "User",
+        st=user["status"], status=status, reg=user["created_at"][:16].replace("T", " "), flash=flash)
 
 
 def admin_cards(me: int, message: str = "", error: str = "") -> str:
@@ -618,6 +678,7 @@ document.getElementById('top').textContent=s.top.length?'Most requests, last 10 
 class Handler(BaseHTTPRequestHandler):
     server_version = "codendum-web"
     csrf = ""  # form token of the current session, set by current_user()
+    session_token = ""
 
     def log_message(self, fmt: str, *args: Any) -> None:
         sys.stderr.write("%s %s\n" % (now_iso(), fmt % args))
@@ -663,7 +724,7 @@ class Handler(BaseHTTPRequestHandler):
         return ""
 
     def current_user(self) -> Optional[sqlite3.Row]:
-        self.csrf = ""
+        self.csrf = self.session_token = ""
         jar = cookies.SimpleCookie(self.headers.get("Cookie", ""))
         if SESSION_COOKIE not in jar:
             return None
@@ -672,7 +733,7 @@ class Handler(BaseHTTPRequestHandler):
                      (token, time.time()))
         if not rows:
             return None
-        self.csrf = csrf_of(token)
+        self.csrf, self.session_token = csrf_of(token), token
         return rows[0]
 
     def page(self, title: str, body: str, user: Optional[sqlite3.Row] = None) -> bytes:
@@ -743,6 +804,12 @@ class Handler(BaseHTTPRequestHandler):
                          '<a class="btn primary" href="/admin">Open the administration</a></div>').format(
                     "1 person is" if pending == 1 else "{} people are".format(pending) if pending else "Nobody is")
             self.send(200, self.page("Home", body, user))
+        elif path == "/profile":
+            if not user:
+                self.redirect("/login?next=/profile")
+            else:
+                saved = "Password changed. Other sessions were logged out." if "saved=1" in qs.split("&") else ""
+                self.send(200, self.page("Profile", profile_card(user, message=saved), user))
         elif path == "/admin":
             if not user:
                 self.redirect("/login?next=/admin")
@@ -826,6 +893,25 @@ class Handler(BaseHTTPRequestHandler):
             query("INSERT INTO setup_codes VALUES (?, ?, ?)",
                   (secrets.token_urlsafe(18), user["id"], time.time() + SETUP_CODE_TTL))
             self.redirect("/")
+        elif self.path == "/profile/password" and user:
+            keys = [(("password", user["id"]), LOGIN_MAX_PER_USER)]
+            current, new = data.get("current", ""), data.get("password", "")
+            error = ""
+            if too_many_failures(keys):
+                error = "Too many wrong passwords. Try again in a few minutes."
+            elif not check_password(current, user["password"]):
+                record_failure(keys)
+                error = "The current password is wrong."
+            elif len(new) < 8:
+                error = "Use a password of 8 or more characters."
+            elif new != data.get("repeat", ""):
+                error = "The two new passwords are different."
+            if error:
+                self.send(400, self.page("Profile", profile_card(user, error=error), user))
+                return
+            query("UPDATE users SET password = ? WHERE id = ?", (hash_password(new), user["id"]))
+            query("DELETE FROM sessions WHERE user_id = ? AND token != ?", (user["id"], self.session_token))
+            self.redirect("/profile?saved=1")
         elif self.path == "/logout":
             jar = cookies.SimpleCookie(self.headers.get("Cookie", ""))
             if SESSION_COOKIE in jar:
