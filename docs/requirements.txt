@@ -14,9 +14,9 @@ beautifulsoup4==4.15.0 \
     --hash=sha256:288e3ca7d54b06f2ac191970bc275c1939cb46d450b255bf6718b04aa37ab4f7 \
     --hash=sha256:d6f88de62e1d4e38ecb1077eb9724cd0eff29d2a08ca16a401e9b9e93f117cf9
     # via furo
-certifi==2026.7.22 \
-    --hash=sha256:62f22742b58a1a33014a2b6b706588a8d7e2a88ae7bd1a6ebe8c992928483775 \
-    --hash=sha256:741e2c3b351ddf169a738da9f2c048608ff7f2c5cc02f1ebc6b118bb090d5d55
+certifi==2026.10.18 \
+    --hash=sha256:73191c47aaa79da394e8fee2dbc2ec827432cab56311122c9e47abf79e390f62 \
+    --hash=sha256:b9995d97b64d0431a5af837d8ca8cd6238104d1f319f04bd93ea43124d6c861e
     # via requests
 charset-normalizer==3.5.1 \
     --hash=sha256:00668ebb0609751758682eb0b5857e7c35b9f00e84dfdef062e103244ec94d45 \
@@ -201,7 +201,7 @@ docutils==0.22.4 \
 furo==2025.12.19 \
     --hash=sha256:188d1f942037d8b37cd3985b955839fea62baa1730087dc29d157677c857e2a7 \
     --hash=sha256:bb0ead5309f9500130665a26bee87693c41ce4dbdff864dbfb6b0dae4673d24f
-    # via -r docs/requirements.in
+    # via -r requirements.in
 idna==3.20 \
     --hash=sha256:a7db850025b95ded1eae8a46181a1a6c56c92c96f0e2b005d9ff8dc0210cab44 \
     --hash=sha256:ab7ae7122974553370f0bdb919e1a960b2cd1bc1ef0276416d896db81c14582c
@@ -324,7 +324,7 @@ mdurl==0.1.2 \
 myst-parser==5.1.0 \
     --hash=sha256:9c91c52b3cdb4d94a6506e4fab4e2f296c7623a0da0dcbe6de1565c3dad67a8a \
     --hash=sha256:ab69322dc6719dcc7f296479dbb70181b66df6ed315064f92dbc85c0e1bf2f02
-    # via -r docs/requirements.in
+    # via -r requirements.in
 packaging==26.3 \
     --hash=sha256:94edc256424af38762eb31306eed28beb9f0efc50a8837492c9d6fd6004aed79 \
     --hash=sha256:d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c
@@ -431,7 +431,7 @@ sphinx==9.1.0 \
     --hash=sha256:7741722357dd75f8190766926071fed3bdc211c74dd2d7d4df5404da95930ddb \
     --hash=sha256:c84fdd4e782504495fe4f2c0b3413d6c2bf388589bb352d439b2a3bb99991978
     # via
-    #   -r docs/requirements.in
+    #   -r requirements.in
     #   furo
     #   myst-parser
     #   sphinx-basic-ng
@@ -448,7 +448,7 @@ sphinx-last-updated-by-git==0.3.8 \
 sphinx-sitemap==2.9.0 \
     --hash=sha256:70f97bcdf444e3d68e118355cf82a1f54c4d3c03d651cd17fe87398b26e25e21 \
     --hash=sha256:f1f1d3a9ad012ba17a7ef0b560d303bff2d0db26647567d6e810bcc754466664
-    # via -r docs/requirements.in
+    # via -r requirements.in
 sphinxcontrib-applehelp==2.0.0 \
     --hash=sha256:2f29ef331735ce958efa4734873f084941970894c6090408b079c61b2e1c06d1 \
     --hash=sha256:4cd3f0ec4ac5dd9c17ec65e9ab272c9b867ea77425228e68ecf08d6b28ddbdb5
@@ -476,7 +476,7 @@ sphinxcontrib-serializinghtml==2.0.0 \
 sphinxext-opengraph==0.13.0 \
     --hash=sha256:103335d08567ad8468faf1425f575e3b698e9621f9323949a6c8b96d9793e80b \
     --hash=sha256:936c07828edc9ad9a7b07908b29596dc84ed0b3ceaa77acdf51282d232d4d80e
-    # via -r docs/requirements.in
+    # via -r requirements.in
 typing-extensions==4.16.0 \
     --hash=sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8 \
     --hash=sha256:dc983d19a509c94dba722ee6abd33940f7c05a89e243c47e907eb4db6f1a43e5
