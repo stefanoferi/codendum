@@ -47,6 +47,7 @@ Individual suites:
 | `tests/test-scripts.sh` | Script behaviour against a mock vLLM server and a fake `docker` |
 | `tests/test-proxy.sh docker` | The proxy container started by `start-proxy.sh`, in front of the mock |
 | `tests/test-proxy.sh native` | The same configuration with the distribution's nginx, run unprivileged |
+| `tests/test-web.sh` | The web panel (preview) end to end in Docker: registration, keys, workstation setup, administration, dashboard, Open WebUI (mock) |
 | `tests/check-docs.sh` | Required files, license text, links, placeholders, strict Sphinx build of `docs/` |
 | `tests/check-secrets.sh` | Whitespace, `.gitignore` coverage, forbidden files, literal credentials |
 

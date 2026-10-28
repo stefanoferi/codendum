@@ -27,6 +27,7 @@ the workstations.
 | `scripts/lib/common.sh` | Shared shell helpers: safe `.env` parsing, profiles, validation |
 | `scripts/lib/codendum.py` | Stdlib-only client: smoke, metrics, bench, gen-keys, classroom, opencode-config |
 | `config/profiles/*.env` | Serving profiles |
+| `web/` | Web panel (preview): `codendum_web.py` (stdlib server), `patch-nginx.py`, workstation setup scripts |
 | `config/*.example.*` | nginx and OpenCode examples (placeholders only) |
 | `tests/` | Offline suites; `mock_vllm.py` imitates the vLLM API |
 | `docs/` | Documentation sources (Markdown, Sphinx + MyST); `docs/requirements.txt` pins the toolchain |
@@ -39,6 +40,7 @@ tests/lint.sh              # bash -n, shellcheck, py_compile, JSON, YAML, SPDX h
 tests/test-scripts.sh      # scripts against the mock server and a fake docker
 tests/test-proxy.sh docker # proxy container via start-proxy.sh, in front of the mock
 tests/test-proxy.sh native # same config with the distribution nginx, unprivileged
+tests/test-web.sh          # web panel (preview) end to end in Docker, with mock vLLM and Open WebUI
 tests/check-docs.sh        # links, placeholders, license text, strict Sphinx build
 tests/check-secrets.sh     # run before every commit
 ```

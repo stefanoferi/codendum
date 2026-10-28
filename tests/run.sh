@@ -9,7 +9,7 @@ set -Eeuo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 status=0
-for suite in "lint.sh" "test-scripts.sh" "test-proxy.sh docker" "test-proxy.sh native" "check-docs.sh" "check-secrets.sh"; do
+for suite in "lint.sh" "test-scripts.sh" "test-proxy.sh docker" "test-proxy.sh native" "test-web.sh" "check-docs.sh" "check-secrets.sh"; do
     printf '\n=== %s ===\n' "$suite"
     read -r -a cmd <<<"$suite"
     "tests/${cmd[0]}" "${cmd[@]:1}" || status=1
