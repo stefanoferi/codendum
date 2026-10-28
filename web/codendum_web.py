@@ -38,6 +38,10 @@ Configuration (environment):
                             socket (/var/run/docker.sock) after the map changes
   CODENDUM_WEB_RELOAD_CMD   alternative: command run after the map changes
   CODENDUM_WEB_METRICS_URL  vLLM metrics (default http://127.0.0.1:8000/metrics)
+  CODENDUM_WEB_VLLM_CONTAINER  vLLM container read through the Docker socket for
+                            the dashboard: engine options from docker inspect,
+                            GPU figures from nvidia-smi (default codendum-vllm;
+                            empty turns it off)
   CODENDUM_WEB_ACCESS_LOG   proxy access log (optional)
   CODENDUM_WEB_API_URL      public proxy URL shown to users (default https://{host}:8443)
   CODENDUM_WEB_CHAT_URL     Open WebUI URL shown to users (optional)
@@ -88,6 +92,7 @@ RELOAD_CMD = ENV("CODENDUM_WEB_RELOAD_CMD", "")
 PROXY_CONTAINER = ENV("CODENDUM_WEB_PROXY_CONTAINER", "")
 DOCKER_SOCKET = ENV("CODENDUM_WEB_DOCKER_SOCKET", "/var/run/docker.sock")
 METRICS_URL = ENV("CODENDUM_WEB_METRICS_URL", "http://127.0.0.1:8000/metrics")
+VLLM_CONTAINER = ENV("CODENDUM_WEB_VLLM_CONTAINER", "codendum-vllm")
 ACCESS_LOG = ENV("CODENDUM_WEB_ACCESS_LOG", "")
 API_URL = ENV("CODENDUM_WEB_API_URL", "https://{host}:8443")
 CHAT_URL = ENV("CODENDUM_WEB_CHAT_URL", "")
@@ -97,6 +102,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 LOGO = os.path.join(HERE, "..", "docs", "_static", "codendum-logo.png")
 SETUP_CODE_TTL = 600
 MODEL_RE = re.compile(r"^[A-Za-z0-9._:/-]{1,128}$")
+# Values from docker inspect, nvidia-smi and /version shown on the dashboard.
+FACT_RE = re.compile(r"^[A-Za-z0-9 ._:/@+-]{1,128}$")
+CONTAINER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 
 # New accounts use the e-mail as user name (also the label in the key map and
 # the access log); accounts created before keep their user name.
@@ -219,17 +227,26 @@ def spki_pin(der: bytes) -> str:
     return "sha256//" + base64.b64encode(hashlib.sha256(der[start:stop]).digest()).decode()
 
 
-def served_model() -> Optional[Tuple[str, int]]:
-    """(model id, max_model_len) from vLLM, or None while it is not ready."""
-    url = METRICS_URL.rsplit("/metrics", 1)[0] + "/v1/models"
+def vllm_get(path: str) -> Any:
+    with urllib.request.urlopen(METRICS_URL.rsplit("/metrics", 1)[0] + path, timeout=5) as resp:
+        return json.loads(resp.read())
+
+
+def model_entry() -> Optional[Dict[str, Any]]:
+    """The first model of /v1/models, or None while vLLM is not ready."""
     try:
-        with urllib.request.urlopen(url, timeout=5) as resp:
-            data = json.loads(resp.read())["data"][0]
+        data = vllm_get("/v1/models")["data"][0]
     except Exception:
         return None
     if not MODEL_RE.match(str(data.get("id", ""))) or not isinstance(data.get("max_model_len"), int):
         return None
-    return data["id"], data["max_model_len"]
+    return data
+
+
+def served_model() -> Optional[Tuple[str, int]]:
+    """(model id, max_model_len) from vLLM, or None while it is not ready."""
+    data = model_entry()
+    return (data["id"], data["max_model_len"]) if data else None
 
 
 def workstation_script(kind: str, user: sqlite3.Row, base: str, chain: List[bytes], model: Tuple[str, int]) -> str:
@@ -323,39 +340,125 @@ def write_key_map() -> None:
             sys.stderr.write("reload failed: {}\n".format(result.stderr.strip()))
 
 
-def docker_exec(container: str, cmd: List[str]) -> None:
-    """Run a command in a container through the Docker Engine API (no CLI needed)."""
+def docker_api(method: str, path: str, body: Optional[Dict[str, Any]] = None, timeout: float = 30) -> Tuple[int, bytes]:
+    """One call to the Docker Engine API on the socket (no CLI needed)."""
     import http.client
     import socket
 
     class UnixConnection(http.client.HTTPConnection):
         def connect(self) -> None:
             self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            self.sock.settimeout(30)
+            self.sock.settimeout(timeout)
             self.sock.connect(DOCKER_SOCKET)
 
-    def call(method: str, path: str, body: Dict[str, Any]) -> Tuple[int, bytes]:
-        conn = UnixConnection("localhost")
+    conn = UnixConnection("localhost")
+    if body is None:
+        conn.request(method, path)
+    else:
         conn.request(method, path, json.dumps(body), {"Content-Type": "application/json"})
-        resp = conn.getresponse()
-        data = resp.read()
-        conn.close()
-        return resp.status, data
+    resp = conn.getresponse()
+    data = resp.read()
+    conn.close()
+    return resp.status, data
 
-    status, data = call("POST", "/containers/{}/exec".format(urllib.parse.quote(container)),
-                        {"Cmd": cmd, "AttachStdout": True, "AttachStderr": True})
+
+def docker_exec(container: str, cmd: List[str], timeout: float = 30) -> bytes:
+    """Run a command in a container and return its standard output."""
+    status, data = docker_api("POST", "/containers/{}/exec".format(urllib.parse.quote(container)),
+                              {"Cmd": cmd, "AttachStdout": True, "AttachStderr": True}, timeout)
     if status != 201:
         raise RuntimeError("exec create {}: {}".format(status, data[:200]))
     exec_id = json.loads(data)["Id"]
-    status, _ = call("POST", "/exec/{}/start".format(exec_id), {"Detach": False, "Tty": False})
+    status, data = docker_api("POST", "/exec/{}/start".format(exec_id), {"Detach": False, "Tty": False}, timeout)
     if status != 200:
         raise RuntimeError("exec start {}".format(status))
-    conn = UnixConnection("localhost")
-    conn.request("GET", "/exec/{}/json".format(exec_id))
-    info = json.loads(conn.getresponse().read())
-    conn.close()
-    if info.get("ExitCode") != 0:
-        raise RuntimeError("{} exited with {}".format(" ".join(cmd), info.get("ExitCode")))
+    _, info = docker_api("GET", "/exec/{}/json".format(exec_id), timeout=timeout)
+    code = json.loads(info).get("ExitCode")
+    if code != 0:
+        raise RuntimeError("{} exited with {}".format(" ".join(cmd), code))
+    # Without a TTY the output is multiplexed: frames with an 8-byte header
+    # (stream, 3 zero bytes, big-endian length); stream 1 is stdout.
+    out, i = b"", 0
+    while i + 8 <= len(data):
+        size = int.from_bytes(data[i + 4:i + 8], "big")
+        if data[i] == 1:
+            out += data[i + 8:i + 8 + size]
+        i += 8 + size
+    return out
+
+
+def docker_ready() -> bool:
+    return bool(VLLM_CONTAINER) and bool(CONTAINER_RE.match(VLLM_CONTAINER)) and os.path.exists(DOCKER_SOCKET)
+
+
+ENGINE_OPTIONS = ("--max-model-len", "--max-num-seqs", "--max-num-batched-tokens", "--gpu-memory-utilization",
+                  "--kv-cache-dtype", "--tool-call-parser")
+ENGINE_SWITCHES = ("--enable-prefix-caching", "--enable-chunked-prefill")
+ENGINE_CACHE: Dict[str, Any] = {"at": 0.0, "info": None}
+
+
+def engine_info() -> Optional[Dict[str, Any]]:
+    """Image, profile, state and the main serving options of the vLLM
+    container, from docker inspect (cached for 30 seconds). Only these
+    fields leave the function: the environment may hold secrets."""
+    if not docker_ready():
+        return None
+    if time.time() - ENGINE_CACHE["at"] < 30:
+        return ENGINE_CACHE["info"]
+    info: Optional[Dict[str, Any]] = None
+    try:
+        status, data = docker_api("GET", "/containers/{}/json".format(urllib.parse.quote(VLLM_CONTAINER)), timeout=5)
+        if status == 200:
+            raw = json.loads(data)
+            state = raw.get("State") or {}
+            image = str((raw.get("Config") or {}).get("Image", ""))
+            name, _, digest = image.partition("@")
+            info = {"image": name + ("@" + digest[:19] if digest else ""),
+                    "profile": ((raw.get("Config") or {}).get("Labels") or {}).get("io.codendum.profile"),
+                    "state": state.get("Status"), "health": (state.get("Health") or {}).get("Status"),
+                    "restarts": raw.get("RestartCount")}
+            try:
+                info["started"] = dt.datetime.strptime(str(state.get("StartedAt", ""))[:19], "%Y-%m-%dT%H:%M:%S") \
+                    .replace(tzinfo=dt.timezone.utc).timestamp()
+            except ValueError:
+                pass
+            args = [str(a) for a in raw.get("Args") or []]
+            for i, arg in enumerate(args):
+                option, equals, value = arg.partition("=")
+                if option in ENGINE_OPTIONS:
+                    info[option[2:]] = value if equals else (args[i + 1] if i + 1 < len(args) else "")
+                elif arg in ENGINE_SWITCHES:
+                    info[arg[2:]] = True
+            info = {k: v for k, v in info.items()
+                    if isinstance(v, (bool, int, float)) or (isinstance(v, str) and FACT_RE.match(v))}
+    except Exception:  # no Docker socket or no such container: nothing shown
+        info = None
+    ENGINE_CACHE.update(at=time.time(), info=info)
+    return info
+
+
+GPU_QUERY = ["nvidia-smi", "--query-gpu=name,utilization.gpu,temperature.gpu,power.draw,clocks.sm",
+             "--format=csv,noheader,nounits"]
+GPU_NAME = {"name": ""}
+
+
+def gpu_sample() -> Dict[str, Optional[float]]:
+    """Utilisation, temperature, power and SM clock of the first GPU, from
+    nvidia-smi in the vLLM container. Fields the GPU does not report are None."""
+    line = docker_exec(VLLM_CONTAINER, GPU_QUERY, timeout=5).decode("utf-8", "replace").strip().splitlines()[0]
+    fields = [f.strip() for f in line.split(",")]
+    if len(fields) != 5:
+        raise RuntimeError("unexpected nvidia-smi output")
+    if FACT_RE.match(fields[0]):
+        GPU_NAME["name"] = fields[0]
+
+    def number(value: str) -> Optional[float]:
+        try:
+            return round(float(value), 1)
+        except ValueError:  # [N/A]
+            return None
+
+    return dict(zip(("gpu", "temp", "power", "clock"), map(number, fields[1:])))
 
 
 # --------------------------------------------------------------------------
@@ -365,24 +468,32 @@ def docker_exec(container: str, cmd: List[str]) -> None:
 SAMPLE_EVERY = 5
 HISTORY: "collections.deque[Dict[str, Any]]" = collections.deque(maxlen=720)  # one hour
 HISTORY_LOCK = threading.Lock()
+LAST_REQUEST: Dict[str, Optional[int]] = {"t": None}  # last sample with vLLM at work
 
 
 def sampler() -> None:
     """Samples vLLM every SAMPLE_EVERY seconds for the dashboard chart; rates
     come from the counters of two samples in a row."""
     previous: Optional[Tuple[float, Dict[str, Optional[float]]]] = None
+    gpu_retry = 0.0
     while True:
         now = time.time()
         point: Dict[str, Any] = {"t": int(now), "up": 0}
         try:
             samples = core.fetch_metrics(METRICS_URL, timeout=3)
             summary = core.summarize_metrics(samples)
+            # vLLM before 0.11 called the inter-token latency time_per_output_token.
+            itl = ("vllm:inter_token_latency_seconds", "vllm:time_per_output_token_seconds")
             counters = {"prompt": summary["prompt_tokens_total"], "gen": summary["generation_tokens_total"],
                         "done": sum(summary["requests_finished"].values()),
                         "ttft_sum": core._pick(samples, ("vllm:time_to_first_token_seconds_sum",)),
-                        "ttft_count": core._pick(samples, ("vllm:time_to_first_token_seconds_count",))}
+                        "ttft_count": core._pick(samples, ("vllm:time_to_first_token_seconds_count",)),
+                        "itl_sum": core._pick(samples, tuple(n + "_sum" for n in itl)),
+                        "itl_count": core._pick(samples, tuple(n + "_count" for n in itl))}
             point.update(up=1, running=summary["requests_running"], waiting=summary["requests_waiting"],
                          kv=summary["kv_cache_usage_percent"])
+            if summary["requests_running"] or (previous and counters["gen"] != previous[1]["gen"]):
+                LAST_REQUEST["t"] = int(now)
             if previous:
                 elapsed, old = now - previous[0], previous[1]
 
@@ -392,16 +503,23 @@ def sampler() -> None:
 
                 gen, prompt, done = delta("gen"), delta("prompt"), delta("done")
                 ttft_sum, ttft_count = delta("ttft_sum"), delta("ttft_count")
+                itl_sum, itl_count = delta("itl_sum"), delta("itl_count")
                 point.update(gen_tps=None if gen is None else round(gen / elapsed, 1),
                              prompt_tps=None if prompt is None else round(prompt / elapsed, 1),
                              req_min=None if done is None else round(done * 60 / elapsed, 1),
-                             ttft=round(ttft_sum / ttft_count, 3) if ttft_sum is not None and ttft_count else None)
+                             ttft=round(ttft_sum / ttft_count, 3) if ttft_sum is not None and ttft_count else None,
+                             itl=round(itl_sum / itl_count, 4) if itl_sum is not None and itl_count else None)
             previous = (now, counters)
         except Exception:  # down or unreachable: a gap in the chart
             previous = None
         memory = core.host_memory()
         if memory:
             point["mem"] = round(memory["mem_total_gib"] - memory["mem_available_gib"], 1)
+        if docker_ready() and now >= gpu_retry:
+            try:
+                point.update(gpu_sample())
+            except Exception:  # no nvidia-smi or container down: try again in a minute
+                gpu_retry = now + 60
         with HISTORY_LOCK:
             HISTORY.append(point)
         time.sleep(SAMPLE_EVERY)
@@ -433,12 +551,21 @@ def service_status() -> Dict[str, Any]:
         status.update(vllm="up", running=summary["requests_running"], waiting=summary["requests_waiting"],
                       kv=summary["kv_cache_usage_percent"], prefix_hit=summary["prefix_cache_hit_rate_percent"],
                       preemptions=summary["preemptions_total"], kv_tokens=summary["kv_cache_capacity_tokens"],
-                      ttft_mean=summary["ttft_mean_seconds"], e2e_mean=summary["e2e_latency_mean_seconds"])
-        model = served_model()
+                      ttft_mean=summary["ttft_mean_seconds"], e2e_mean=summary["e2e_latency_mean_seconds"],
+                      queue_mean=summary["queue_time_mean_seconds"], finished=summary["requests_finished"],
+                      prompt_total=summary["prompt_tokens_total"], gen_total=summary["generation_tokens_total"])
+        model = model_entry()
         if model:
-            status.update(model=model[0], context=model[1])
+            status.update(model=model["id"], context=model["max_model_len"])
+            if FACT_RE.match(str(model.get("root", ""))):
+                status["weights"] = model["root"]
+        version = str(vllm_get("/version").get("version", ""))
+        if FACT_RE.match(version):
+            status["version"] = version
     except Exception:  # down or unreachable: shown as such
         pass
+    status["engine"] = engine_info()
+    status["gpu_name"], status["last_request"] = GPU_NAME["name"], LAST_REQUEST["t"]
     memory = core.host_memory()
     if memory:
         status.update(mem_total=memory["mem_total_gib"],
@@ -576,6 +703,9 @@ border-radius:999px;padding:0 7px;font-size:12px}
 .tile{border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-width:0}
 .tile b{display:block;font-size:22px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tile span{color:var(--muted);font-size:12px}.small{font-size:12px;font-weight:400}
+.facts{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(340px,100%),1fr));gap:0 28px;margin:0}
+.facts div{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid var(--line);padding:7px 0;min-width:0}
+.facts dt{color:var(--muted)}.facts dd{margin:0;font-weight:600;text-align:right;overflow-wrap:anywhere}
 canvas{display:block;width:100%;height:170px}canvas.short{height:120px}
 .chart-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}.chart-head h2{margin:0}
 .range{display:flex}.range button{border-radius:0;margin-left:-1px;font-size:13px;padding:4px 10px}
@@ -795,7 +925,9 @@ def dashboard() -> str:
         '<button data-r="3600">1 hour</button></div></div>'
         '<h3>Tokens per second</h3><canvas id="c-tps"></canvas><div class="legend" id="l-tps"></div>'
         '<h3>Requests</h3><canvas id="c-req"></canvas><div class="legend" id="l-req"></div>'
-        '<h3>KV cache</h3><canvas id="c-kv" class="short"></canvas><div class="legend" id="l-kv"></div></div>'
+        '<h3>KV cache and GPU</h3><canvas id="c-kv" class="short"></canvas><div class="legend" id="l-kv"></div></div>'
+        '<div class="card"><h2>Model and engine</h2><dl class="facts" id="engine"></dl></div>'
+        '<div class="card"><h2>Since vLLM started</h2><dl class="facts" id="totals"></dl></div>'
         '<div class="card"><h2>People</h2><div class="tiles" id="people"></div><p class="muted" id="top"></p></div>'
     ) + DASHBOARD_JS
 
@@ -805,7 +937,13 @@ def dashboard() -> str:
 DASHBOARD_JS = """<script>
 const F=(v,d)=>v===null||v===undefined?'–':(d===undefined?v:Number(v).toFixed(d));
 const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-function tile(v,l,cls){return `<div class="tile"><b class="${cls||''}">${v}</b><span>${l}</span></div>`}
+const E=v=>String(v).replace(/[&<>"']/g,c=>'&#'+c.charCodeAt(0)+';');
+const N=v=>v==null?'–':Math.round(v).toLocaleString('en');
+const U=(v,u,d)=>v==null?'–':F(v,d||0)+u;
+function dur(s){if(s==null)return '–';const d=Math.floor(s/86400),h=Math.floor(s%%86400/3600),m=Math.floor(s%%3600/60);
+ return d?`${d} d ${h} h`:h?`${h} h ${m} min`:`${m} min`}
+function tile(v,l,cls){return `<div class="tile"><b class="${cls||''}">${E(v)}</b><span>${l}</span></div>`}
+function facts(rows){return rows.filter(r=>r[1]!=null&&r[1]!=='').map(r=>`<div><dt>${r[0]}</dt><dd>${E(r[1])}</dd></div>`).join('')}
 let range=900,status=null;
 function draw(id,legendId,all,series,fixedTop){
  const c=document.getElementById(id),dpr=window.devicePixelRatio||1,w=c.clientWidth,h=c.clientHeight;
@@ -821,25 +959,52 @@ function draw(id,legendId,all,series,fixedTop){
  series.forEach(s=>{g.strokeStyle=s.c;g.lineWidth=2;g.lineJoin='round';g.beginPath();let on=false,prev=0;
   points.forEach(p=>{const v=p[s.k];if(v==null||p.t-prev>3*%d){on=false}
    if(v!=null){const X=x(p.t),Y=y(v);on?g.lineTo(X,Y):g.moveTo(X,Y);on=true}prev=p.t});g.stroke()});
- const last=points.length?points[points.length-1]:{};
- document.getElementById(legendId).innerHTML=series.map(s=>`<span><i style="background:${s.c}"></i>${s.l}: <b>${F(last[s.k])}</b>${s.u||''}</span>`).join('');
+ const last=points.length?points[points.length-1]:{},peak=k=>points.reduce((m,p)=>p[k]!=null&&(m==null||p[k]>m)?p[k]:m,null);
+ document.getElementById(legendId).innerHTML=series.map(s=>`<span><i style="background:${s.c}"></i>${s.l}: <b>${F(last[s.k])}</b>${s.u||''}`+
+  ` <span class="muted">· peak ${F(peak(s.k))}${s.u||''}</span></span>`).join('');
 }
 function charts(){if(!status)return;const h=status.history||[];
  draw('c-tps','l-tps',h,[{k:'gen_tps',l:'output',c:css('--brand')},{k:'prompt_tps',l:'input',c:css('--ok')}]);
  draw('c-req','l-req',h,[{k:'running',l:'running',c:css('--brand')},{k:'waiting',l:'waiting',c:css('--warn')}]);
- draw('c-kv','l-kv',h,[{k:'kv',l:'used',c:css('--ok'),u:'%%'}],100);
+ draw('c-kv','l-kv',h,[{k:'kv',l:'KV cache used',c:css('--ok'),u:'%%'},{k:'gpu',l:'GPU busy',c:css('--brand'),u:'%%'}],100);
 }
 document.querySelectorAll('.range button').forEach(b=>b.addEventListener('click',()=>{range=+b.dataset.r;
  document.querySelectorAll('.range button').forEach(o=>o.classList.toggle('on',o===b));charts()}));
 async function refresh(){let s;try{s=await (await fetch('/api/status')).json()}catch(e){return}status=s;
- const up=s.vllm=='up',h=s.history||[],last=h.length?h[h.length-1]:{},p=s.people||{};
+ const up=s.vllm=='up',h=s.history||[],last=h.length?h[h.length-1]:{},p=s.people||{},e=s.engine||{};
+ const seqs=e['max-num-seqs'],gpu=h.slice().reverse().find(q=>q.gpu!=null||q.temp!=null)||{};
+ // Tiles average the last minute: with a few people, most 5-second samples are idle.
+ const minute=h.filter(q=>last.t-q.t<60),avg=(k,busy)=>{const v=minute.map(q=>q[k]).filter(x=>x!=null&&(!busy||x>0));
+  return v.length?v.reduce((a,b)=>a+b,0)/v.length:null};
+ const itl=avg('itl',true),ago=s.last_request?Date.now()/1000-s.last_request:null;
  document.getElementById('tiles').innerHTML=
-  tile(s.vllm,'vLLM',up?'active':'blocked')+tile(s.model?s.model:'–',s.context?`model · ${Math.round(s.context/1024)}k context`:'model')+
-  tile(F(last.gen_tps,0),'output tokens/s')+tile(F(last.prompt_tps,0),'input tokens/s')+tile(F(last.req_min,0),'requests/min')+
-  tile(F(s.running),'running')+tile(F(s.waiting),'waiting',s.waiting>0?'pending':'')+
-  tile(s.kv==null?'–':F(s.kv,0)+'%%','KV cache',s.kv>90?'blocked':'')+
-  tile(last.ttft==null?'–':F(last.ttft,2)+' s','first token')+tile(s.prefix_hit==null?'–':F(s.prefix_hit,0)+'%%','prefix cache hits')+
+  tile(s.vllm,e.health?'vLLM · '+E(e.health):'vLLM',up?'active':'blocked')+
+  tile(F(avg('gen_tps'),0),'output tokens/s · 1 min')+tile(F(avg('prompt_tps'),0),'input tokens/s · 1 min')+
+  tile(F(avg('req_min'),0),'requests · last minute')+
+  tile(ago==null?'–':ago<15?'now':dur(ago)+' ago','last request')+
+  tile(F(s.running),seqs?'running · of '+E(seqs):'running')+tile(F(s.waiting),'waiting',s.waiting>0?'pending':'')+
+  tile(U(s.kv,'%%'),'KV cache',s.kv>90?'blocked':'')+
+  tile(U(avg('ttft',true),' s',2),'first token · 1 min')+tile(itl?F(1/itl,0):'–','tokens/s per request · 1 min')+
+  tile(U(s.prefix_hit,'%%'),'prefix cache hits')+
+  tile(U(gpu.gpu,'%%'),'GPU busy')+tile(U(gpu.temp,' °C'),'GPU temperature',gpu.temp>85?'blocked':'')+
+  tile(U(gpu.power,' W'),'GPU power')+
   tile(s.mem_used==null?'–':`${F(s.mem_used,0)}/${F(s.mem_total,0)}`,'memory GiB')+tile(F(s.preemptions),'preemptions',s.preemptions>0?'pending':'');
+ const kvt=s.kv_tokens,ctx=s.context,on=v=>v?'on':'off';
+ document.getElementById('engine').innerHTML=facts([
+  ['Served as',s.model],['Weights',s.weights],['vLLM',s.version],['Image',e.image],['Profile',e.profile],
+  ['Context',ctx&&N(ctx)+' tokens'],['Requests at once',seqs],['Tokens per step',e['max-num-batched-tokens']&&N(+e['max-num-batched-tokens'])],
+  ['KV cache',kvt&&`${N(kvt)} tokens${e['kv-cache-dtype']?', '+e['kv-cache-dtype']:''}${ctx?` (${F(kvt/ctx,1)} full contexts)`:''}`],
+  ['GPU memory for vLLM',e['gpu-memory-utilization']&&F(100*e['gpu-memory-utilization'],0)+'%%'],
+  ['Prefix caching',s.engine&&on(e['enable-prefix-caching'])],['Chunked prefill',s.engine&&on(e['enable-chunked-prefill'])],
+  ['Tool call parser',e['tool-call-parser']],['Container',e.state&&e.state+(e.health?', '+e.health:'')],
+  ['Up for',e.started&&e.state=='running'?dur(Date.now()/1000-e.started):null],['Restarts',e.restarts],
+  ['GPU',s.gpu_name],['GPU clock',gpu.clock!=null?N(gpu.clock)+' MHz':null]]);
+ const fin=s.finished||{},done=Object.values(fin).reduce((a,b)=>a+b,0),share=k=>done?F(100*(fin[k]||0)/done,0)+'%%':null;
+ document.getElementById('totals').innerHTML=facts([
+  ['Requests answered',up?N(done):null],['Input tokens',up?N(s.prompt_total):null],['Output tokens',up?N(s.gen_total):null],
+  ['Finished normally',share('stop')],['Cut at the output limit',share('length')],['Aborted',fin.abort?share('abort'):null],
+  ['Mean time to answer',s.e2e_mean!=null?F(s.e2e_mean,1)+' s':null],['Mean first token',s.ttft_mean!=null?F(s.ttft_mean,2)+' s':null],
+  ['Mean wait in queue',s.queue_mean!=null?F(s.queue_mean,2)+' s':null]])||'<div class="muted">vLLM is down.</div>';
  document.getElementById('people').innerHTML=tile(F(p.active||0),'approved','active')+tile(F(p.pending||0),'waiting',p.pending?'pending':'')+
   tile(F(p.blocked||0),'blocked')+tile(F(s.active_users),'using the API now');
  document.getElementById('top').textContent=s.top.length?'Most API requests, last 10 min: '+s.top.map(t=>t[0]+' ('+t[1]+')').join(', '):'';

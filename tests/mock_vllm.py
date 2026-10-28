@@ -46,6 +46,12 @@ def metrics_text(max_model_len: int, waiting: int = 0) -> str:
         'vllm:request_success_total{engine="0",finished_reason="stop",model_name="coder"} 0',
         'vllm:time_to_first_token_seconds_sum{engine="0",model_name="coder"} %.3f' % (0.05 * done),
         'vllm:time_to_first_token_seconds_count{engine="0",model_name="coder"} %d' % done,
+        'vllm:inter_token_latency_seconds_sum{engine="0",model_name="coder"} %.3f' % (0.02 * gen),
+        'vllm:inter_token_latency_seconds_count{engine="0",model_name="coder"} %d' % gen,
+        'vllm:e2e_request_latency_seconds_sum{engine="0",model_name="coder"} %.3f' % (0.5 * done),
+        'vllm:e2e_request_latency_seconds_count{engine="0",model_name="coder"} %d' % done,
+        'vllm:request_queue_time_seconds_sum{engine="0",model_name="coder"} %.3f' % (0.01 * done),
+        'vllm:request_queue_time_seconds_count{engine="0",model_name="coder"} %d' % done,
         'vllm:cache_config_info{block_size="16",cache_dtype="fp8",engine="0",num_gpu_blocks="%d"} 1.0'
         % (max_model_len * 20 // 16),
         "",

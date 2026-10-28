@@ -10,8 +10,9 @@
 # setup command (with a fake opencode) and is blocked; the administration
 # settings and password reset work; forms need the session's CSRF token;
 # administrators follow into Open WebUI (tests/mock_openwebui.py) and switch
-# its web search; the dashboard gets samples; repeated failed logins are
-# refused.
+# its web search; the dashboard gets samples, the engine options of a stand-in
+# vLLM container (never its environment) and GPU figures from a fake
+# nvidia-smi; repeated failed logins are refused.
 
 # shellcheck source=tests/lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -48,22 +49,31 @@ python3 web/patch-nginx.py "${P}/conf.d/codendum.conf" "127.0.0.1:${WEB_PORT}"
 
 PROXY="codendum-proxy-webtest-$$"
 WEB="codendum-web-test-$$"
+VLLM="codendum-vllm-webtest-$$"
 mkdir -p "${P}/web"
 {
     grep '^CODENDUM_PROXY_IMAGE=' .env.example
     echo "CODENDUM_PROXY_CONTAINER_NAME=${PROXY}"
     echo "CODENDUM_PROXY_DIR=${P}"
 } >"${TMP_ROOT}/proxy.env"
-stop_all() { docker rm -f "$PROXY" "$WEB" >/dev/null 2>&1 || true; }
+stop_all() { docker rm -f "$PROXY" "$WEB" "$VLLM" >/dev/null 2>&1 || true; }
 CLEANUP_HOOK=stop_all
 
 echo "# start"
 expect_exit 0 "proxy starts with the panel configuration" env -u CODENDUM_ENV_FILE scripts/start-proxy.sh -e "${TMP_ROOT}/proxy.env"
+# Stands in for the vLLM container: the options start-vllm.sh passes, a secret
+# in the environment, and an nvidia-smi that reports one field as [N/A].
+printf '#!/bin/sh\necho "NVIDIA GB10, 37, 51, 14.20, [N/A]"\n' >"${TMP_ROOT}/nvidia-smi"
+chmod 755 "${TMP_ROOT}/nvidia-smi"
+check "stand-in vLLM container starts" docker run -d --name "$VLLM" --label io.codendum.profile=test \
+    -e HF_TOKEN=hf_webtest_not_shown -v "${TMP_ROOT}/nvidia-smi":/usr/local/bin/nvidia-smi:ro \
+    --entrypoint python3 "$PY_IMAGE" -c 'import time; time.sleep(86400)' serve coder \
+    --max-model-len 65536 --max-num-seqs 24 --gpu-memory-utilization 0.80 --kv-cache-dtype fp8 --enable-prefix-caching
 check "panel container starts" docker run -d --name "$WEB" --network host \
     -v "$ROOT":/codendum:ro -v "$P":/proxy -v "${P}/web":/data -v /var/run/docker.sock:/var/run/docker.sock \
     -e CODENDUM_WEB_LISTEN="127.0.0.1:${WEB_PORT}" -e CODENDUM_WEB_DB=/data/web.sqlite \
     -e CODENDUM_WEB_MAP=/proxy/api-keys-web.map -e CODENDUM_WEB_PROXY_CONTAINER="$PROXY" \
-    -e CODENDUM_WEB_METRICS_URL="http://127.0.0.1:${MOCK_PORT}/metrics" \
+    -e CODENDUM_WEB_METRICS_URL="http://127.0.0.1:${MOCK_PORT}/metrics" -e CODENDUM_WEB_VLLM_CONTAINER="$VLLM" \
     -e CODENDUM_WEB_API_URL="https://{host}:${HTTPS_PORT}" -e CODENDUM_WEB_CHAT_URL="https://{host}:8444/" \
     -e CODENDUM_WEB_OPENWEBUI_URL="http://127.0.0.1:${OWUI_PORT}" \
     "$PY_IMAGE" python3 /codendum/web/codendum_web.py
@@ -208,6 +218,19 @@ h = s["history"]
 assert any(p.get("up") == 1 for p in h) and any("gen_tps" in p for p in h), h[-3:]
 assert s["model"] == "coder" and s["people"]["active"] >= 2
 '; then ok "dashboard: live samples with token rates, model, people"; else not_ok "dashboard: live samples with token rates, model, people"; fi
+if "${C[@]}" -b "$A" "${URL}/api/status" | python3 -c '
+import json, sys
+text = sys.stdin.read()
+s, e = json.loads(text), json.loads(text)["engine"]
+assert "hf_webtest_not_shown" not in text and "HF_TOKEN" not in text
+assert e["max-num-seqs"] == "24" and e["kv-cache-dtype"] == "fp8" and e["enable-prefix-caching"] is True, e
+assert e["profile"] == "test" and e["state"] == "running" and "started" in e and "enable-chunked-prefill" not in e, e
+assert s["version"] == "mock" and s["weights"].startswith("Qwen/") and s["gpu_name"] == "NVIDIA GB10", s
+g = [p for p in s["history"] if "gpu" in p]
+assert g and g[-1]["gpu"] == 37 and g[-1]["temp"] == 51 and g[-1]["power"] == 14.2 and g[-1]["clock"] is None, g[-1:]
+assert any(p.get("itl") for p in s["history"]) and s["last_request"] and s["e2e_mean"] == 0.5, s["history"][-3:]
+'; then ok "dashboard: engine options without the environment, GPU, latency, last request"
+else not_ok "dashboard: engine options without the environment, GPU, latency, last request"; fi
 if "${C[@]}" -o /dev/null -D - -b "$A" "${URL}/auth/verify" | grep -qi '^x-codendum-role: admin' &&
     "${C[@]}" -o /dev/null -D - -b "$S" "${URL}/auth/verify" | grep -qi '^x-codendum-role: user'; then
     ok "/auth/verify gives the role for Open WebUI"; else not_ok "/auth/verify gives the role for Open WebUI"; fi

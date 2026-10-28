@@ -14,12 +14,20 @@ A small panel for a classroom, hackathon, lab or office:
 - the profile menu in the header leads to the profile page, where people
   change their password (their other sessions are logged out);
 - the administration has three pages:
-  - **Dashboard** (`/admin`): vLLM status, model and context, tokens per
-    second, requests per minute, running and waiting requests, KV cache, time
-    to first token, prefix cache hits, host memory, preemptions, people, and
-    who made the most API requests in the last 10 minutes; live charts of the
-    last 5 minutes, 15 minutes or hour (vLLM is sampled every 5 seconds and
-    the last hour is kept in memory);
+  - **Dashboard** (`/admin`):
+    - tiles averaged over the last minute: tokens per second, requests, time
+      to first token, tokens per second for each request, the time of the
+      last request; running and waiting requests, KV cache, prefix cache hits,
+      GPU utilisation, temperature and power, host memory, preemptions;
+    - live charts of the last 5 minutes, 15 minutes or hour, with the peak
+      (vLLM is sampled every 5 seconds and the last hour is kept in memory);
+    - the model and the engine: served name, weights, vLLM version, image,
+      profile, context, requests at once, KV cache size and type, GPU memory
+      share, prefix caching, container state, uptime and restarts, GPU name
+      and clock;
+    - totals since vLLM started: requests, tokens, how requests ended, mean
+      latencies;
+    - people, and who made the most API requests in the last 10 minutes;
   - **People** (`/admin/people`): approve (one or all), block, unblock,
     delete, renew keys, reset passwords, grant the administrator role;
   - **Settings** (`/admin/settings`): registration open or closed, the e-mail
@@ -150,6 +158,12 @@ every start, and everyone else who registers waits for approval.
 - Mounting the Docker socket gives the panel control over Docker. This is
   acceptable on a dedicated host, but it is one of the points to revisit
   before a release.
+- Through the same socket the dashboard reads the vLLM container
+  (`CODENDUM_WEB_VLLM_CONTAINER`, default `codendum-vllm`; empty turns it
+  off): a few serving options, the state and the image from `docker inspect`,
+  never the environment, and every 5 seconds one `nvidia-smi --query-gpu`
+  inside the container. If `nvidia-smi` fails, the GPU tiles stay empty and
+  it is tried again a minute later.
 
 To remove the panel, stop and remove the container, restore
 `codendum.conf.bak`, and run `scripts/start-proxy.sh --reload`.
