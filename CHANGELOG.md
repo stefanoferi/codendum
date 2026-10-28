@@ -17,6 +17,13 @@ Dates use ISO 8601 (YYYY-MM-DD).
 - Web panel dashboard: the card header says once that rates average the last
   minute, instead of a suffix on every tile.
 
+### Security
+
+- `docs/requirements.txt`: certifi 2026.10.18 (was 2026.7.22), which removes
+  the emSign root CAs whose intermediate CA keys were compromised
+  ([GHSA-6q48-6c7w-9gw2](https://github.com/advisories/GHSA-6q48-6c7w-9gw2)).
+  Only the documentation toolchain uses it.
+
 ## [0.2.0] - 2026-10-28
 
 ### Added
