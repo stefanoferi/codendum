@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 540" width="1000" height="540" role="img" aria-labelledby="t d">
+  <!-- SPDX-License-Identifier: Apache-2.0 -->
+  <!-- Copyright 2026 Stefano Noferi -->
+  <title id="t">Codendum architecture</title>
+  <desc id="d">Workstations on the LAN or VPN reach the GB10 host only through the nginx container on port 8443.
+    nginx forwards /v1/chat/completions and /v1/models to vLLM on 127.0.0.1:8000, the other paths to the web panel
+    on 127.0.0.1:8090, and the chat to an optional Open WebUI that trusts the panel's login. Code, builds and tests
+    stay on the workstations.</desc>
+  <style>
+    text { font-family: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #14204a; }
+    .h { font-size: 17px; font-weight: 700; }
+    .s { font-size: 13.5px; fill: #46527a; }
+    .m { font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; fill: #3557f5; }
+    .l { font-size: 12.5px; fill: #46527a; }
+    .lm { font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; fill: #14204a; }
+    .cap { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; fill: #46527a; }
+    .box { fill: #ffffff; stroke: #d5dcee; stroke-width: 1.5; }
+    .arrow { fill: none; stroke: #46527a; stroke-width: 2; }
+    .dash { stroke-dasharray: 5 5; }
+  </style>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#46527a"/>
+    </marker>
+  </defs>
+
+  <rect width="1000" height="540" rx="18" fill="#f3f6fc"/>
+
+  <!-- Workstations -->
+  <text x="34" y="56" class="cap">WORKSTATIONS · LAN OR VPN</text>
+  <rect x="30" y="76" width="236" height="150" rx="12" class="box"/>
+  <rect x="30" y="76" width="6" height="150" rx="3" fill="#0fbfb4"/>
+  <text x="52" y="108" class="h">OpenCode</text>
+  <text x="52" y="134" class="s">The coding agent, with an</text>
+  <text x="52" y="153" class="s">OpenAI-compatible provider</text>
+  <text x="52" y="183" class="s">Git, builds, tests and IDEs</text>
+  <text x="52" y="202" class="s">run here, never on the GB10</text>
+
+  <rect x="30" y="290" width="236" height="130" rx="12" class="box"/>
+  <rect x="30" y="290" width="6" height="130" rx="3" fill="#0fbfb4"/>
+  <text x="52" y="322" class="h">Browser</text>
+  <text x="52" y="348" class="s">Personal page, API key,</text>
+  <text x="52" y="367" class="s">one-time OpenCode setup,</text>
+  <text x="52" y="386" class="s">dashboard, chat</text>
+
+  <!-- GB10 host -->
+  <rect x="330" y="30" width="640" height="480" rx="16" fill="#ffffff" stroke="#3557f5" stroke-width="2"/>
+  <text x="352" y="62" class="cap">GB10 HOST · DGX OS, ARM64 · EVERY SERVICE IN DOCKER</text>
+
+  <!-- nginx -->
+  <rect x="352" y="84" width="176" height="350" rx="12" fill="#14204a"/>
+  <text x="372" y="118" class="h" style="fill:#ffffff">nginx</text>
+  <text x="372" y="140" class="s" style="fill:#c9d4ff">The only way in</text>
+  <text x="372" y="160" class="lm" style="fill:#c9d4ff">:8443 API and panel</text>
+  <text x="372" y="196" class="s" style="fill:#ffffff">TLS</text>
+  <text x="372" y="222" class="s" style="fill:#ffffff">Network allowlist</text>
+  <text x="372" y="248" class="s" style="fill:#ffffff">Per-user API key</text>
+  <text x="372" y="274" class="s" style="fill:#ffffff">Per-user limits</text>
+  <text x="372" y="300" class="s" style="fill:#ffffff">Two API endpoints,</text>
+  <text x="372" y="319" class="s" style="fill:#ffffff">nothing else of vLLM</text>
+
+  <!-- vLLM -->
+  <rect x="668" y="84" width="280" height="128" rx="12" class="box" stroke="#3557f5"/>
+  <rect x="668" y="84" width="6" height="128" rx="3" fill="#3557f5"/>
+  <text x="690" y="114" class="h">vLLM</text>
+  <text x="746" y="114" class="m">127.0.0.1:8000</text>
+  <text x="690" y="140" class="lm">Qwen3-Coder-30B-A3B-Instruct-FP8</text>
+  <text x="690" y="164" class="s">Served as “coder”, tool calling,</text>
+  <text x="690" y="183" class="s">FP8 KV cache, prefix caching</text>
+
+  <!-- web panel -->
+  <rect x="668" y="238" width="280" height="110" rx="12" class="box"/>
+  <rect x="668" y="238" width="6" height="110" rx="3" fill="#f2554a"/>
+  <text x="690" y="268" class="h">Web panel</text>
+  <text x="784" y="268" class="m">127.0.0.1:8090</text>
+  <text x="690" y="292" class="s">Preview. Accounts, approval,</text>
+  <text x="690" y="311" class="s">keys for nginx, live dashboard</text>
+  <text x="690" y="330" class="s">of vLLM and the GPU</text>
+
+  <!-- Open WebUI -->
+  <rect x="668" y="374" width="280" height="86" rx="12" fill="#ffffff" stroke="#46527a" stroke-width="1.5" class="dash"/>
+  <text x="690" y="404" class="h">Open WebUI</text>
+  <text x="810" y="404" class="l">optional</text>
+  <text x="690" y="428" class="s">Chat, with the panel's login</text>
+  <text x="690" y="447" class="s">and administrators</text>
+
+  <!-- workstation to nginx -->
+  <path d="M266 150 C 305 150, 310 170, 350 170" class="arrow" marker-end="url(#a)"/>
+  <text x="276" y="138" class="l">HTTPS</text>
+  <path d="M266 355 C 305 355, 310 335, 350 335" class="arrow" marker-end="url(#a)"/>
+  <text x="276" y="378" class="l">HTTPS</text>
+
+  <!-- nginx to services -->
+  <path d="M528 148 H 666" class="arrow" marker-end="url(#a)"/>
+  <text x="538" y="122" class="lm">/v1/chat/</text>
+  <text x="538" y="138" class="lm">completions</text>
+  <text x="538" y="166" class="lm">/v1/models</text>
+  <path d="M528 293 H 666" class="arrow" marker-end="url(#a)"/>
+  <text x="538" y="283" class="lm">other paths</text>
+  <path d="M528 417 H 666" class="arrow dash" marker-end="url(#a)"/>
+  <text x="538" y="407" class="lm">chat</text>
+  <text x="538" y="435" class="l">login checked</text>
+  <text x="538" y="450" class="l">by the panel</text>
+
+  <!-- panel reads vLLM -->
+  <path d="M880 238 V 214" class="arrow dash" marker-end="url(#a)"/>
+  <text x="888" y="231" class="l">metrics</text>
+
+  <text x="352" y="488" class="s">Everything but nginx listens on loopback. The GB10 serves inference only.</text>
+</svg>

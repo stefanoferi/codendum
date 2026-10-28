@@ -1009,12 +1009,12 @@ async function refresh(){let s;try{s=await (await fetch('/api/status')).json()}c
  const itl=avg('itl',true),ago=s.last_request?Date.now()/1000-s.last_request:null;
  document.getElementById('tiles').innerHTML=
   tile(s.vllm,e.health?'vLLM · '+E(e.health):'vLLM',up?'active':'blocked')+
-  tile(F(avg('gen_tps'),0),'output tokens/s · 1 min')+tile(F(avg('prompt_tps'),0),'input tokens/s · 1 min')+
-  tile(F(avg('req_min'),0),'requests · last minute')+
+  tile(F(avg('gen_tps'),0),'output tokens/s')+tile(F(avg('prompt_tps'),0),'input tokens/s')+
+  tile(F(avg('req_min'),0),'requests per minute')+
   tile(ago==null?'–':ago<15?'now':dur(ago)+' ago','last request')+
   tile(F(s.running),seqs?'running · of '+E(seqs):'running')+tile(F(s.waiting),'waiting',s.waiting>0?'pending':'')+
   tile(U(s.kv,'%%'),'KV cache',s.kv>90?'blocked':'')+
-  tile(U(avg('ttft',true),' s',2),'first token · 1 min')+tile(itl?F(1/itl,0):'–','tokens/s per request · 1 min')+
+  tile(U(avg('ttft',true),' s',2),'first token')+tile(itl?F(1/itl,0):'–','tokens/s per request')+
   tile(U(s.prefix_hit,'%%'),'prefix cache hits')+
   tile(U(gpu.gpu,'%%'),'GPU busy')+tile(U(gpu.temp,' °C'),'GPU temperature',gpu.temp>85?'blocked':'')+
   tile(U(gpu.power,' W'),'GPU power')+
@@ -1038,7 +1038,7 @@ async function refresh(){let s;try{s=await (await fetch('/api/status')).json()}c
  document.getElementById('people').innerHTML=tile(F(p.active||0),'approved','active')+tile(F(p.pending||0),'waiting',p.pending?'pending':'')+
   tile(F(p.blocked||0),'blocked')+tile(F(s.active_users),'using the API now');
  document.getElementById('top').textContent=s.top.length?'Most API requests, last 10 min: '+s.top.map(t=>t[0]+' ('+t[1]+')').join(', '):'';
- document.getElementById('updated').textContent='updated '+new Date().toLocaleTimeString();
+ document.getElementById('updated').textContent='rates average the last minute · updated '+new Date().toLocaleTimeString();
  charts();
 }
 refresh();setInterval(refresh,5000);window.addEventListener('resize',charts);

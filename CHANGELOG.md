@@ -8,6 +8,15 @@ Dates use ISO 8601 (YYYY-MM-DD).
 
 ## [Unreleased]
 
+### Changed
+
+- `README.md` and the documentation home show the architecture as a diagram
+  (`docs/_static/architecture.svg`), including the web panel and Open WebUI;
+  `README.md` and `docs/web.md` show screenshots of the web panel, taken from
+  the test setup.
+- Web panel dashboard: the card header says once that rates average the last
+  minute, instead of a suffix on every tile.
+
 ## [0.2.0] - 2026-10-28
 
 ### Added

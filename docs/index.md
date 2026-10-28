@@ -15,17 +15,9 @@ service. They follow the order of a first installation.
 
 ## How it works
 
-```text
- User workstations                       GB10 host (DGX OS, ARM64)
- ┌──────────────────────────┐            ┌───────────────────────────────────────────┐
- │ OpenCode                 │  HTTPS     │ nginx container :8443                     │
- │ Git, toolchains, IDEs,   │───────────▶│  network allowlist, per-user API key,     │
- │ builds and tests         │  /v1/...   │  per-user limits, only 2 endpoints        │
- └──────────────────────────┘  LAN/VPN   │        │                                  │
-                                         │        ▼ 127.0.0.1:8000                   │
-                                         │ vLLM container (served model "coder")     │
-                                         │ Qwen3-Coder-30B-A3B-Instruct-FP8          │
-                                         └───────────────────────────────────────────┘
+```{image} _static/architecture.svg
+:alt: Workstations reach the GB10 only through nginx on port 8443: /v1/chat/completions and /v1/models go to vLLM, other paths to the web panel, the chat to an optional Open WebUI; everything but nginx listens on loopback
+:width: 100%
 ```
 
 - **The GB10 only serves inference.** Users' code, version control, compilers,

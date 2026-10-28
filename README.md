@@ -22,18 +22,9 @@ install the service, secure it, test it, measure it and operate it.
 
 ## How it works
 
-```text
- User workstations                       GB10 host (DGX OS, ARM64)
- ┌──────────────────────────┐            ┌───────────────────────────────────────────┐
- │ OpenCode                 │  HTTPS     │ nginx container :8443                     │
- │ Git, toolchains, IDEs,   │───────────▶│  network allowlist, per-user API key,     │
- │ builds and tests         │  /v1/...   │  per-user limits, only 2 endpoints        │
- └──────────────────────────┘  LAN/VPN   │        │                                  │
-                                         │        ▼ 127.0.0.1:8000                   │
-                                         │ vLLM container (served model "coder")     │
-                                         │ Qwen3-Coder-30B-A3B-Instruct-FP8          │
-                                         └───────────────────────────────────────────┘
-```
+<p align="center">
+  <img src="docs/_static/architecture.svg" alt="Workstations reach the GB10 only through nginx on port 8443: /v1/chat/completions and /v1/models go to vLLM, other paths to the web panel, the chat to an optional Open WebUI; everything but nginx listens on loopback" width="900">
+</p>
 
 - **The GB10 only serves inference.** Users' code, version control, compilers,
   interpreters, package managers, builds and tests run on the workstations or in
@@ -49,6 +40,22 @@ install the service, secure it, test it, measure it and operate it.
 - **OpenCode uses an explicit OpenAI-compatible provider.** The served model name
   is `coder`, tool calling is enabled explicitly, and the context limit matches
   the server profile.
+
+## Web panel (preview)
+
+The [web panel](docs/web.md) handles the class from the browser. People
+register, get their key and connect OpenCode with one command. Administrators
+approve people and follow vLLM, the GPU and the users live.
+
+<p align="center">
+  <img src="docs/_static/screenshots/web-dashboard.png" alt="Administrator dashboard: tiles for tokens per second, requests, latency, KV cache and GPU, live charts, model and engine settings" width="900">
+</p>
+<p align="center">
+  <img src="docs/_static/screenshots/web-access.png" alt="Personal page: install OpenCode, connect it to Codendum with a one-time command, start coding" width="700">
+</p>
+
+<sub>Screenshots from the test setup, with example accounts, a mock vLLM and a
+simulated GPU: the figures are not measurements.</sub>
 
 ## Quick start
 

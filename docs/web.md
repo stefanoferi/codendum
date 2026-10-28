@@ -13,6 +13,13 @@ The panel is one Python file using the standard library only, with one SQLite
 file. It runs in a stock Python container, listens on `127.0.0.1:8090` and is
 reached through the nginx proxy only.
 
+```{image} _static/screenshots/web-dashboard.png
+:alt: Administrator dashboard: tiles for tokens per second, requests, latency, KV cache and GPU, live charts, model and engine settings
+```
+
+Screenshots on this page come from the test setup, with example accounts, a
+mock vLLM and a simulated GPU: the figures are not measurements.
+
 ## For the people using it
 
 1. **Register** with an e-mail address. The form says at once if the address
@@ -27,6 +34,11 @@ reached through the nginx proxy only.
 The personal page also links to the chat, if there is one, and shows the API
 key, which people can renew. The profile menu in the header leads to the
 password change; changing the password logs out the person's other sessions.
+
+```{image} _static/screenshots/web-access.png
+:alt: Personal page: install OpenCode, connect it to Codendum with a one-time command, start coding
+:width: 80%
+```
 
 The setup command needs no repository copy and no Python on the workstation:
 
