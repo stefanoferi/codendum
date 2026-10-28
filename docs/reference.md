@@ -11,11 +11,13 @@ own licenses and terms, which the operator must review and comply with.
 
 | Component | Pinned version | License | Where it runs |
 | --- | --- | --- | --- |
-| Codendum (this repository) | 0.1.1 | Apache-2.0 | GB10 host, workstations |
+| Codendum (this repository) | 0.2.0 | Apache-2.0 | GB10 host, workstations |
 | vLLM container image | `vllm/vllm-openai:v0.30.0@sha256:8a69ffad015f138d7170c4ddc429e230a3bc1c1719f67e14324749df200a4b90` (index; the linux/arm64 manifest is `sha256:4864d466…`), CUDA 13.0.2 | vLLM: Apache-2.0; the image bundles third-party software (for example the CUDA runtime and PyTorch) under their own licenses | GB10 host |
 | Model | `Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8` at revision `dcaee4d4dfc5ee71ad501f01f530e5652438fde0` | Apache-2.0, according to the model card; check the model's license file | GB10 host |
 | OpenCode | V2 (2.0.x); 1.x with the V1 example | MIT | Workstations |
 | nginx container image | `nginx:1.30.5-alpine@sha256:0985e772fb9f729e6fa0980da05fca5d9c468e870eed43071545afa9d2e27d94` | nginx: BSD-2-Clause; the Alpine base includes packages under their own licenses | GB10 host |
+| Python container image (web panel, preview) | `python:3.12-slim@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f` | Python: PSF-2.0; the Debian base includes packages under their own licenses | GB10 host |
+| Open WebUI (optional, with the web panel) | Checked with 0.12.0 | Its own license; check the project's LICENSE file | GB10 host |
 | Docker Engine, NVIDIA Container Toolkit | Preinstalled with DGX OS | Apache-2.0 | GB10 host |
 | `actions/checkout` | v7.0.1 @ `3d3c42e5aac5ba805825da76410c181273ba90b1` | MIT | CI only |
 | Code of conduct | Contributor Covenant 3.0 | CC BY-SA 4.0 | Documentation |
@@ -29,6 +31,9 @@ The public interface is:
 - the `CODENDUM_*` variable names;
 - the profile names;
 - the layout of the configuration examples.
+
+The web panel (`web/`, `CODENDUM_WEB_*`) is a preview: its options, routes and
+pages may still change in a minor release.
 
 Changes are recorded in [CHANGELOG.md](https://github.com/stefanoferi/codendum/blob/main/CHANGELOG.md).
 

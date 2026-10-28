@@ -8,6 +8,37 @@ Dates use ISO 8601 (YYYY-MM-DD).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-28
+
+### Added
+
+- Web panel, as a **preview** (`web/`, documented in `docs/web.md`): its
+  options, routes and pages may still change in a minor release.
+  - People register with their e-mail address and wait for approval, unless
+    their domain is approved automatically. The first administrator is
+    created with a one-time link printed in the panel log.
+  - Each approved person gets a personal page with a three-step OpenCode
+    guide, the API key and a one-time setup command for macOS, Linux and
+    Windows, pinned to the proxy's public key. The Windows script has not
+    been tested on a real Windows workstation yet.
+  - Administrators approve, block, delete and promote people, renew keys and
+    reset passwords; close registration, limit it to e-mail domains and show
+    a notice; follow vLLM, the GPU and the users on a live dashboard.
+  - Optional single login for Open WebUI through nginx `auth_request`, with
+    the panel's administrators as chat administrators, and a switch for web
+    search in the chat.
+  - CSRF tokens on every form, rate-limited logins, password change from the
+    profile menu.
+  - Keys go to a separate `api-keys-web.map`, so keys from
+    `scripts/gen-api-keys.sh` keep working. The panel mounts the Docker socket
+    to reload the proxy and read the vLLM container; this is the main point to
+    revisit before it leaves the preview.
+  - `CODENDUM_WEB_*` variables configure it; see `docs/web.md`.
+- `web/patch-nginx.py` adapts an existing proxy configuration for the panel.
+- `tests/test-web.sh` tests the panel end to end in Docker, with
+  `tests/mock_openwebui.py`, in CI and in `tests/run.sh`; `tests/mock_vllm.py`
+  also exposes the latency histograms the dashboard reads.
+
 ### Changed
 
 - `config/nginx.example.conf`: plain HTTP sent to the TLS port is redirected to
@@ -115,6 +146,7 @@ The results are in `docs/benchmark.md`.
   package, documentation checks and secret hygiene. Minimal permissions, and
   actions pinned by commit SHA with Dependabot updates.
 
-[Unreleased]: https://github.com/stefanoferi/codendum/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/stefanoferi/codendum/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/stefanoferi/codendum/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/stefanoferi/codendum/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/stefanoferi/codendum/releases/tag/v0.1.0

@@ -39,7 +39,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
-__version__ = "0.1.1"
+__version__ = "0.2.0"
 
 EXIT_OK = 0
 EXIT_FAIL = 1
