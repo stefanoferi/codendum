@@ -9,7 +9,9 @@
 # user registers, is approved, uses the API key, runs the one-time workstation
 # setup command (with a fake opencode) and is blocked; the administration
 # settings and password reset work; forms need the session's CSRF token;
-# repeated failed logins are refused.
+# administrators follow into Open WebUI (tests/mock_openwebui.py) and switch
+# its web search; the dashboard gets samples; repeated failed logins are
+# refused.
 
 # shellcheck source=tests/lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -27,6 +29,12 @@ mkdir -p "$P"/{conf.d,tls,logs}
 HTTPS_PORT="$(free_port)"
 WEB_PORT="$(free_port)"
 start_mock --stream-delay 0
+OWUI_PORT_FILE="${TMP_ROOT}/owui.port"
+python3 tests/mock_openwebui.py --port-file "$OWUI_PORT_FILE" &
+CLEANUP_PIDS+=("$!")
+for _ in $(seq 1 100); do [[ -s "$OWUI_PORT_FILE" ]] && break; sleep 0.05; done
+OWUI_PORT="$(cat "$OWUI_PORT_FILE")"
+owui_state() { curl -s --noproxy '*' "http://127.0.0.1:${OWUI_PORT}/_state"; }
 openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost" \
     -keyout "${P}/tls/privkey.pem" -out "${P}/tls/fullchain.pem" >/dev/null 2>&1
 chmod 600 "${P}/tls/privkey.pem"
@@ -57,13 +65,14 @@ check "panel container starts" docker run -d --name "$WEB" --network host \
     -e CODENDUM_WEB_MAP=/proxy/api-keys-web.map -e CODENDUM_WEB_PROXY_CONTAINER="$PROXY" \
     -e CODENDUM_WEB_METRICS_URL="http://127.0.0.1:${MOCK_PORT}/metrics" \
     -e CODENDUM_WEB_API_URL="https://{host}:${HTTPS_PORT}" -e CODENDUM_WEB_CHAT_URL="https://{host}:8444/" \
+    -e CODENDUM_WEB_OPENWEBUI_URL="http://127.0.0.1:${OWUI_PORT}" \
     "$PY_IMAGE" python3 /codendum/web/codendum_web.py
 for _ in $(seq 1 100); do curl -s -o /dev/null "http://127.0.0.1:${WEB_PORT}/login" && break; sleep 0.1; done
 
 URL="https://localhost:${HTTPS_PORT}"
 C=(curl -sS --noproxy '*' --cacert "${P}/tls/fullchain.pem" --max-time 20)
 page_of() { "${C[@]}" -b "$1" "${URL}/"; }
-admin_of() { "${C[@]}" -b "$1" "${URL}/admin"; }
+admin_of() { "${C[@]}" -b "$1" "${URL}/admin${2:-}"; }
 csrf_of() { page_of "$1" | grep -oE 'name=csrf value="[0-9a-f]{64}"' | head -1 | grep -oE '[0-9a-f]{64}'; }
 # post JAR PATH [FIELDS]: a form sent from the panel's own page, with the CSRF token.
 post() { "${C[@]}" -o /dev/null -w '%{http_code}' -b "$1" --data "csrf=$(csrf_of "$1")${3:+&$3}" "${URL}$2"; }
@@ -77,7 +86,7 @@ if [[ -n "$SETUP" ]]; then ok "panel logs a one-time setup link"; else not_ok "p
 check "student registers before any administrator" "${C[@]}" -o /dev/null -c "$S" -d "email=s@example.org&password=password123" "${URL}/register"
 if page_of "$S" | grep -q 'Waiting for approval'; then ok "student waits for approval, does not become admin"; else not_ok "student waits for approval, does not become admin"; fi
 check "admin registers with the setup link" "${C[@]}" -o /dev/null -c "$A" -d "email=T@Example.org&password=password123&setup=${SETUP}" "${URL}/register"
-if admin_of "$A" | grep -q 'Approve all'; then ok "setup account is the administrator"; else not_ok "setup account is the administrator"; fi
+if admin_of "$A" /people | grep -q 'Approve all'; then ok "setup account is the administrator"; else not_ok "setup account is the administrator"; fi
 if [[ "$(code_of -d "email=i@example.org&password=password123&setup=${SETUP}" "${URL}/register")" == 400 ]]; then
     ok "setup link works only once"; else not_ok "setup link works only once"; fi
 echo "# e-mail as user name"
@@ -172,7 +181,7 @@ if page_of "$S" | grep -q 'Server restarts at 13:00'; then ok "users see the not
 if [[ "$(post "$A" /admin/settings "registration=open&domains=not_a_domain")" == 400 ]]; then
     ok "settings: invalid domain refused"; else not_ok "settings: invalid domain refused"; fi
 post "$A" /admin/settings "registration=open&domains=%40Example.org&auto_approve=on" >/dev/null
-if admin_of "$A" | grep -q 'value="example.org"' && check_email 'x@other.example' | grep -q 'Only addresses at example.org'; then
+if admin_of "$A" /settings | grep -q 'value="example.org"' && check_email 'x@other.example' | grep -q 'Only addresses at example.org'; then
     ok "registration limited to the allowed domains"; else not_ok "registration limited to the allowed domains"; fi
 R="${TMP_ROOT}/auto.jar"
 "${C[@]}" -o /dev/null -c "$R" -d "email=auto@example.org&password=password123" "${URL}/register"
@@ -186,6 +195,35 @@ if [[ -n "$NEWPW" && "$(code_of -b "$S" "${URL}/")" == 303 ]]; then ok "password
 if [[ "$(code_of -c "$S" --data-urlencode "email=s@example.org" --data-urlencode "password=${NEWPW}" "${URL}/login")" == 303 ]] &&
     [[ "$(code_of -d "email=s@example.org&password=password123" "${URL}/login")" == 401 ]]; then
     ok "the new password works, the old one does not"; else not_ok "the new password works, the old one does not"; fi
+
+echo "# dashboard and chat"
+if admin_of "$A" | grep -q 'id="c-tps"' && admin_of "$A" /people | grep -q 'href="/admin/settings"'; then
+    ok "administration split into dashboard, people and settings"; else not_ok "administration split into dashboard, people and settings"; fi
+# The panel samples every 5 seconds; rates need two samples in a row.
+for _ in $(seq 1 15); do "${C[@]}" -b "$A" "${URL}/api/status" | grep -q '"gen_tps"' && break; sleep 1; done
+if "${C[@]}" -b "$A" "${URL}/api/status" | python3 -c '
+import json, sys
+s = json.load(sys.stdin)
+h = s["history"]
+assert any(p.get("up") == 1 for p in h) and any("gen_tps" in p for p in h), h[-3:]
+assert s["model"] == "coder" and s["people"]["active"] >= 2
+'; then ok "dashboard: live samples with token rates, model, people"; else not_ok "dashboard: live samples with token rates, model, people"; fi
+if "${C[@]}" -o /dev/null -D - -b "$A" "${URL}/auth/verify" | grep -qi '^x-codendum-role: admin' &&
+    "${C[@]}" -o /dev/null -D - -b "$S" "${URL}/auth/verify" | grep -qi '^x-codendum-role: user'; then
+    ok "/auth/verify gives the role for Open WebUI"; else not_ok "/auth/verify gives the role for Open WebUI"; fi
+if admin_of "$A" /settings | grep -q 'name=web_search value=on checked' &&
+    owui_state | grep -q '"t@example.org": "admin"'; then
+    ok "settings show the chat web search, read as an administrator of Open WebUI"; else not_ok "settings show the chat web search"; fi
+post "$A" /admin/chat "" >/dev/null
+if owui_state | grep -q '"web_search": false' && ! admin_of "$A" /settings | grep -q 'name=web_search value=on checked'; then
+    ok "web search switched off in Open WebUI"; else not_ok "web search switched off in Open WebUI"; fi
+post "$A" /admin/chat "web_search=on" >/dev/null
+if owui_state | grep -q '"web_search": true'; then ok "web search switched on again"; else not_ok "web search switched on again"; fi
+post "$A" "/admin/${SID}/promote" >/dev/null
+promoted="$(owui_state | grep -o '"s@example.org": "[a-z]*"')"
+post "$A" "/admin/${SID}/demote" >/dev/null
+if [[ "$promoted" == '"s@example.org": "admin"' ]] && owui_state | grep -q '"s@example.org": "user"'; then
+    ok "promote and demote apply to Open WebUI at once"; else not_ok "promote and demote apply to Open WebUI at once ($promoted)"; fi
 
 echo "# profile"
 S2="${TMP_ROOT}/student2.jar"

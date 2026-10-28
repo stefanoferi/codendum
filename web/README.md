@@ -13,13 +13,18 @@ A small panel for a classroom, hackathon, lab or office:
   to the chat, and their API key;
 - the profile menu in the header leads to the profile page, where people
   change their password (their other sessions are logged out);
-- administrators approve (one or all), block, unblock, delete, renew keys,
-  reset passwords and grant the administrator role on `/admin`;
-- the same page holds a few settings: registration open or closed, the e-mail
-  domains allowed to register (optionally approved at once), and a notice
-  shown at the top of every personal page;
-- a status box shows whether vLLM is up, the running and waiting requests, KV
-  cache usage, and who made the most requests in the last 10 minutes.
+- the administration has three pages:
+  - **Dashboard** (`/admin`): vLLM status, model and context, tokens per
+    second, requests per minute, running and waiting requests, KV cache, time
+    to first token, prefix cache hits, host memory, preemptions, people, and
+    who made the most API requests in the last 10 minutes; live charts of the
+    last 5 minutes, 15 minutes or hour (vLLM is sampled every 5 seconds and
+    the last hour is kept in memory);
+  - **People** (`/admin/people`): approve (one or all), block, unblock,
+    delete, renew keys, reset passwords, grant the administrator role;
+  - **Settings** (`/admin/settings`): registration open or closed, the e-mail
+    domains allowed to register (optionally approved at once), a notice shown
+    at the top of every personal page, and web search in the chat.
 
 The panel writes the keys of approved users to `api-keys-web.map`, next to the
 `api-keys.map` from `gen-api-keys.sh`, and reloads the proxy with
@@ -27,9 +32,43 @@ The panel writes the keys of approved users to `api-keys-web.map`, next to the
 working.
 
 **Prototype:** standard library only, one Python file and one SQLite file,
-covered by `tests/test-web.sh`. `/auth/verify` answers nginx `auth_request`, so
-that Open WebUI can trust the logged-in user; the nginx side of that is not in
-`patch-nginx.py` yet.
+covered by `tests/test-web.sh`.
+
+## Open WebUI
+
+`/auth/verify` answers nginx `auth_request`, so that Open WebUI can trust the
+logged-in user. It returns `X-Codendum-Email`, `X-Codendum-User` and
+`X-Codendum-Role` (`admin` for administrators, `user` otherwise), so that
+administrators of the panel are administrators of the chat. The nginx side is
+not in `patch-nginx.py` yet; in the `location` that proxies Open WebUI:
+
+```nginx
+auth_request /_codendum_verify;          # internal location → panel /auth/verify
+auth_request_set $codendum_email $upstream_http_x_codendum_email;
+auth_request_set $codendum_name  $upstream_http_x_codendum_user;
+auth_request_set $codendum_role  $upstream_http_x_codendum_role;
+# Always overwritten, never the ones sent by the client.
+proxy_set_header X-Codendum-Email $codendum_email;
+proxy_set_header X-Codendum-User  $codendum_name;
+proxy_set_header X-Codendum-Role  $codendum_role;
+```
+
+Open WebUI (checked with 0.12.0) then needs
+`WEBUI_AUTH_TRUSTED_EMAIL_HEADER=X-Codendum-Email`,
+`WEBUI_AUTH_TRUSTED_NAME_HEADER=X-Codendum-User` and
+`WEBUI_AUTH_TRUSTED_ROLE_HEADER=X-Codendum-Role`, and must listen on loopback
+only: anyone who reaches it directly can send these headers. Set the role
+header in nginx before Open WebUI trusts it. Open WebUI applies the role at
+each sign-in.
+
+With `CODENDUM_WEB_OPENWEBUI_URL` (for example `http://127.0.0.1:3000`), the
+panel also talks to Open WebUI itself, signing in with the same headers:
+
+- it applies a role change (make or remove an administrator, block or delete
+  one) at once instead of at the next chat login;
+- the settings page turns web search in the chat on or off
+  (`ENABLE_WEB_SEARCH`, through `/api/v1/retrieval/config`), acting as the
+  administrator who uses the page.
 
 Every form that changes something carries a token derived from the session
 (CSRF protection), on top of `SameSite=Strict` cookies. A password reset shows
@@ -106,7 +145,7 @@ every start, and everyone else who registers waits for approval.
 
 - `patch-nginx.py` keeps a backup as `codendum.conf.bak`.
 - After a boot, the API answers 502 until vLLM has loaded the model (a minute
-  or two); the status box shows vLLM as down meanwhile.
+  or two); the dashboard shows vLLM as down meanwhile.
 - The panel listens on `127.0.0.1:8090` only, so nginx is the only way in.
 - Mounting the Docker socket gives the panel control over Docker. This is
   acceptable on a dedicated host, but it is one of the points to revisit

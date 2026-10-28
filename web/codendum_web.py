@@ -18,7 +18,13 @@ PROTOTYPE. Standard library only (http.server + sqlite3).
   change and the proxy is reloaded with CODENDUM_WEB_RELOAD_CMD.
 - /auth/verify answers nginx auth_request, so that Open WebUI can trust the
   identity of the logged-in user (trusted e-mail header).
-- The status box reads vLLM /metrics and the proxy access log.
+- The administration has three pages: a dashboard (vLLM /metrics sampled every
+  5 seconds for a live chart of the last hour, host memory, people and the
+  proxy access log), people, and settings.
+- With Open WebUI (CODENDUM_WEB_OPENWEBUI_URL), administrators are also
+  administrators of the chat: /auth/verify gives the role, and the panel
+  updates it in Open WebUI when it changes. The settings page turns the chat's
+  web search on or off through the Open WebUI API.
 - Workstation setup: the personal page creates a one-time command (10
   minutes) that downloads setup-workstation.sh or .ps1 with the user's key,
   pinned to the proxy's public key, so no repository copy is needed.
@@ -35,6 +41,10 @@ Configuration (environment):
   CODENDUM_WEB_ACCESS_LOG   proxy access log (optional)
   CODENDUM_WEB_API_URL      public proxy URL shown to users (default https://{host}:8443)
   CODENDUM_WEB_CHAT_URL     Open WebUI URL shown to users (optional)
+  CODENDUM_WEB_OPENWEBUI_URL  Open WebUI on loopback, for the panel itself (optional,
+                            for example http://127.0.0.1:3000). Open WebUI must
+                            trust the X-Codendum-Email, -User and -Role headers
+                            (WEBUI_AUTH_TRUSTED_*_HEADER) and listen on loopback only.
   In both URLs, {host} is replaced with the host name the browser used, so the
   panel needs no change when the host address changes.
   CODENDUM_WEB_TLS_CHAIN    proxy certificate chain, read for the pin and /ca.pem
@@ -45,6 +55,7 @@ Configuration (environment):
 from __future__ import annotations
 
 import base64
+import collections
 import datetime as dt
 import hashlib
 import hmac
@@ -80,6 +91,7 @@ METRICS_URL = ENV("CODENDUM_WEB_METRICS_URL", "http://127.0.0.1:8000/metrics")
 ACCESS_LOG = ENV("CODENDUM_WEB_ACCESS_LOG", "")
 API_URL = ENV("CODENDUM_WEB_API_URL", "https://{host}:8443")
 CHAT_URL = ENV("CODENDUM_WEB_CHAT_URL", "")
+OPENWEBUI_URL = ENV("CODENDUM_WEB_OPENWEBUI_URL", "").rstrip("/")
 TLS_CHAIN = ENV("CODENDUM_WEB_TLS_CHAIN", "/proxy/tls/fullchain.pem")
 HERE = os.path.dirname(os.path.abspath(__file__))
 LOGO = os.path.join(HERE, "..", "docs", "_static", "codendum-logo.png")
@@ -350,17 +362,56 @@ def docker_exec(container: str, cmd: List[str]) -> None:
 # status
 # --------------------------------------------------------------------------
 
-def service_status() -> Dict[str, Any]:
-    status: Dict[str, Any] = {"vllm": "down", "running": None, "waiting": None, "kv": None, "top": []}
-    try:
-        summary = core.summarize_metrics(core.fetch_metrics(METRICS_URL, timeout=3))
-        status.update(vllm="up", running=summary["requests_running"], waiting=summary["requests_waiting"],
-                      kv=summary["kv_cache_usage_percent"])
-    except Exception:  # down or unreachable: shown as such
-        pass
+SAMPLE_EVERY = 5
+HISTORY: "collections.deque[Dict[str, Any]]" = collections.deque(maxlen=720)  # one hour
+HISTORY_LOCK = threading.Lock()
+
+
+def sampler() -> None:
+    """Samples vLLM every SAMPLE_EVERY seconds for the dashboard chart; rates
+    come from the counters of two samples in a row."""
+    previous: Optional[Tuple[float, Dict[str, Optional[float]]]] = None
+    while True:
+        now = time.time()
+        point: Dict[str, Any] = {"t": int(now), "up": 0}
+        try:
+            samples = core.fetch_metrics(METRICS_URL, timeout=3)
+            summary = core.summarize_metrics(samples)
+            counters = {"prompt": summary["prompt_tokens_total"], "gen": summary["generation_tokens_total"],
+                        "done": sum(summary["requests_finished"].values()),
+                        "ttft_sum": core._pick(samples, ("vllm:time_to_first_token_seconds_sum",)),
+                        "ttft_count": core._pick(samples, ("vllm:time_to_first_token_seconds_count",))}
+            point.update(up=1, running=summary["requests_running"], waiting=summary["requests_waiting"],
+                         kv=summary["kv_cache_usage_percent"])
+            if previous:
+                elapsed, old = now - previous[0], previous[1]
+
+                def delta(key: str) -> Optional[float]:
+                    a, b = counters[key], old[key]
+                    return None if a is None or b is None or a < b else a - b  # None after a restart
+
+                gen, prompt, done = delta("gen"), delta("prompt"), delta("done")
+                ttft_sum, ttft_count = delta("ttft_sum"), delta("ttft_count")
+                point.update(gen_tps=None if gen is None else round(gen / elapsed, 1),
+                             prompt_tps=None if prompt is None else round(prompt / elapsed, 1),
+                             req_min=None if done is None else round(done * 60 / elapsed, 1),
+                             ttft=round(ttft_sum / ttft_count, 3) if ttft_sum is not None and ttft_count else None)
+            previous = (now, counters)
+        except Exception:  # down or unreachable: a gap in the chart
+            previous = None
+        memory = core.host_memory()
+        if memory:
+            point["mem"] = round(memory["mem_total_gib"] - memory["mem_available_gib"], 1)
+        with HISTORY_LOCK:
+            HISTORY.append(point)
+        time.sleep(SAMPLE_EVERY)
+
+
+def recent_users() -> List[Tuple[str, int]]:
+    """API requests per user in the last 10 minutes, from the proxy access log."""
+    counts: Dict[str, int] = {}
     if ACCESS_LOG and os.path.exists(ACCESS_LOG):
         cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=10)
-        counts: Dict[str, int] = {}
         with open(ACCESS_LOG, encoding="utf-8", errors="replace") as handle:
             for line in handle.readlines()[-20000:]:
                 match = re.match(r"^(\S+) \S+ user=(\S*) ", line)
@@ -372,8 +423,99 @@ def service_status() -> Dict[str, Any]:
                     continue
                 if stamp >= cutoff:
                     counts[match.group(2)] = counts.get(match.group(2), 0) + 1
-        status["top"] = sorted(counts.items(), key=lambda item: -item[1])[:5]
+    return sorted(counts.items(), key=lambda item: -item[1])
+
+
+def service_status() -> Dict[str, Any]:
+    status: Dict[str, Any] = {"vllm": "down", "running": None, "waiting": None, "kv": None, "top": []}
+    try:
+        summary = core.summarize_metrics(core.fetch_metrics(METRICS_URL, timeout=3))
+        status.update(vllm="up", running=summary["requests_running"], waiting=summary["requests_waiting"],
+                      kv=summary["kv_cache_usage_percent"], prefix_hit=summary["prefix_cache_hit_rate_percent"],
+                      preemptions=summary["preemptions_total"], kv_tokens=summary["kv_cache_capacity_tokens"],
+                      ttft_mean=summary["ttft_mean_seconds"], e2e_mean=summary["e2e_latency_mean_seconds"])
+        model = served_model()
+        if model:
+            status.update(model=model[0], context=model[1])
+    except Exception:  # down or unreachable: shown as such
+        pass
+    memory = core.host_memory()
+    if memory:
+        status.update(mem_total=memory["mem_total_gib"],
+                      mem_used=round(memory["mem_total_gib"] - memory["mem_available_gib"], 1))
+    recent = recent_users()
+    status["top"], status["active_users"] = recent[:5], len(recent)
+    status["people"] = {r["status"]: r["n"] for r in query("SELECT status, count(*) AS n FROM users GROUP BY status")}
+    with HISTORY_LOCK:
+        status["history"] = list(HISTORY)
     return status
+
+
+# --------------------------------------------------------------------------
+# Open WebUI
+# --------------------------------------------------------------------------
+
+OWUI_TOKENS: Dict[str, Tuple[str, float]] = {}
+
+
+def owui_call(method: str, path: str, body: Any = None, token: str = "",
+              headers: Optional[Dict[str, str]] = None) -> Any:
+    request = urllib.request.Request(OPENWEBUI_URL + path, method=method,
+                                     data=None if body is None else json.dumps(body).encode(),
+                                     headers={"Content-Type": "application/json", **(headers or {})})
+    if token:
+        request.add_header("Authorization", "Bearer " + token)
+    with urllib.request.urlopen(request, timeout=10) as response:
+        return json.loads(response.read() or b"null")
+
+
+def owui_role(user: sqlite3.Row) -> str:
+    if user["status"] != "active":
+        return "pending"
+    return "admin" if user["role"] == "admin" else "user"
+
+
+def owui_signin(user: sqlite3.Row, role: str) -> str:
+    """Signs in to Open WebUI as this user with the trusted headers, as nginx
+    does for the browser. Open WebUI also sets the role it is given."""
+    email = user["email"].lower()
+    result = owui_call("POST", "/api/v1/auths/signin", {"email": email, "password": ""},
+                       headers={"X-Codendum-Email": email, "X-Codendum-User": user["username"],
+                                "X-Codendum-Role": role})
+    if role == "pending":  # Open WebUI answers pending accounts without a session
+        return ""
+    if not isinstance(result, dict) or not result.get("token"):
+        raise RuntimeError("Open WebUI gave no session (multi-factor authentication?)")
+    if result.get("role") != role:
+        raise RuntimeError("Open WebUI did not apply the role: set WEBUI_AUTH_TRUSTED_ROLE_HEADER=X-Codendum-Role")
+    return str(result["token"])
+
+
+def owui_admin_token(admin: sqlite3.Row) -> str:
+    cached = OWUI_TOKENS.get(admin["email"].lower())
+    if cached and cached[1] > time.time():
+        return cached[0]
+    token = owui_signin(admin, "admin")
+    OWUI_TOKENS[admin["email"].lower()] = (token, time.time() + 600)
+    return token
+
+
+def sync_owui_role(user: sqlite3.Row, role: str) -> None:
+    """Applies a role change in Open WebUI at once (otherwise at the next chat login)."""
+    if OPENWEBUI_URL:
+        OWUI_TOKENS.pop(user["email"].lower(), None)
+        try:
+            owui_signin(user, role)
+        except Exception as exc:
+            sys.stderr.write("Open WebUI role of {}: {}\n".format(user["username"], exc))
+
+
+def owui_web_search(admin: sqlite3.Row, enable: Optional[bool] = None) -> bool:
+    """Reads, or sets, whether the chat can search the web."""
+    token = owui_admin_token(admin)
+    if enable is not None:
+        owui_call("POST", "/api/v1/retrieval/config/update", {"web": {"ENABLE_WEB_SEARCH": enable}}, token)
+    return bool(owui_call("GET", "/api/v1/retrieval/config", token=token)["web"]["ENABLE_WEB_SEARCH"])
 
 
 # --------------------------------------------------------------------------
@@ -406,7 +548,6 @@ table{width:100%;border-collapse:collapse}td,th{padding:8px 6px;border-bottom:1p
 th{color:var(--muted);font-weight:500}form.inline{display:inline}
 .badge{font-size:12px;padding:2px 8px;border-radius:999px;border:1px solid currentColor}
 .active{color:var(--ok)}.pending{color:var(--pend)}.blocked{color:var(--warn)}
-.stats{display:flex;gap:28px;flex-wrap:wrap}.stat b{display:block;font-size:24px}.stat span{color:var(--muted);font-size:13px}
 input{font:inherit;width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);margin:4px 0 12px}
 .narrow{width:100%;max-width:380px;margin:60px auto}.muted{color:var(--muted)}.err{color:var(--warn)}
 .hint{min-height:1.4em;margin:-6px 0 10px;font-size:13px}.hint.ok{color:var(--ok)}
@@ -427,6 +568,21 @@ background:var(--bg);color:var(--ink);margin:4px 0 12px}
 label.check{display:flex;gap:8px;align-items:center;margin:4px 0}label.check input{width:auto;margin:0}
 .notice{border-left:4px solid var(--brand);white-space:pre-line}.ok-msg{color:var(--ok)}
 .field-help{margin:-8px 0 12px;font-size:13px}.narrow-card{max-width:480px}
+.tabs{display:flex;gap:4px;justify-content:flex-start;border-bottom:1px solid var(--line)}.tabs a{padding:8px 14px;text-decoration:none;
+color:var(--muted);border-bottom:3px solid transparent;margin-bottom:-1px;font-weight:600}
+.tabs a.on{color:var(--ink);border-bottom-color:var(--brand)}.tabs .count{background:var(--pend);color:#fff;
+border-radius:999px;padding:0 7px;font-size:12px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px}
+.tile{border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-width:0}
+.tile b{display:block;font-size:22px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tile span{color:var(--muted);font-size:12px}.small{font-size:12px;font-weight:400}
+canvas{display:block;width:100%;height:170px}canvas.short{height:120px}
+.chart-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}.chart-head h2{margin:0}
+.range{display:flex}.range button{border-radius:0;margin-left:-1px;font-size:13px;padding:4px 10px}
+.range button:first-child{border-radius:8px 0 0 8px}.range button:last-child{border-radius:0 8px 8px 0}
+.range button.on{background:var(--brand);border-color:var(--brand);color:#fff}.legend{display:flex;gap:18px;flex-wrap:wrap;font-size:13px;margin-top:8px}
+.legend i{display:inline-block;width:12px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle}
+.scroll{overflow-x:auto}
 .menu{position:relative}.menu summary{list-style:none;display:flex;gap:6px;align-items:center;color:#1d2433;
 padding:6px 10px;border:1px solid #d0d5dd;border-radius:8px}.menu summary::-webkit-details-marker{display:none}
 .menu summary::after{content:"";border:5px solid transparent;border-top-color:currentColor;margin-top:5px}
@@ -615,11 +771,88 @@ def profile_card(user: sqlite3.Row, message: str = "", error: str = "") -> str:
         st=user["status"], status=status, reg=user["created_at"][:16].replace("T", " "), flash=flash)
 
 
-def admin_cards(me: int, message: str = "", error: str = "") -> str:
+def admin_tabs(active: str) -> str:
+    pending = len(query("SELECT 1 FROM users WHERE status = 'pending'"))
+    tabs = [("/admin", "Dashboard"), ("/admin/people", "People"), ("/admin/settings", "Settings")]
+    return '<nav class="tabs">{}</nav>'.format("".join(
+        '<a href="{}"{}>{}{}</a>'.format(href, ' class="on" aria-current="page"' if href == active else "", label,
+                                         ' <span class="count">{}</span>'.format(pending)
+                                         if label == "People" and pending else "")
+        for href, label in tabs))
+
+
+def flash_of(message: str, error: str) -> str:
+    return ('<p class="err">{}</p>'.format(html.escape(error)) if error else
+            '<p class="ok-msg">{}</p>'.format(html.escape(message)) if message else "")
+
+
+def dashboard() -> str:
+    return admin_tabs("/admin") + (
+        '<div class="card"><h2>Service <span class="muted small" id="updated"></span></h2>'
+        '<div class="tiles" id="tiles">loading…</div></div>'
+        '<div class="card"><div class="chart-head"><h2>Activity</h2><div class="range" role="group" '
+        'aria-label="Time range"><button data-r="300">5 min</button><button data-r="900" class="on">15 min</button>'
+        '<button data-r="3600">1 hour</button></div></div>'
+        '<h3>Tokens per second</h3><canvas id="c-tps"></canvas><div class="legend" id="l-tps"></div>'
+        '<h3>Requests</h3><canvas id="c-req"></canvas><div class="legend" id="l-req"></div>'
+        '<h3>KV cache</h3><canvas id="c-kv" class="short"></canvas><div class="legend" id="l-kv"></div></div>'
+        '<div class="card"><h2>People</h2><div class="tiles" id="people"></div><p class="muted" id="top"></p></div>'
+    ) + DASHBOARD_JS
+
+
+# Live dashboard: polls /api/status every 5 seconds and draws the last hour on
+# two canvases (no chart library).
+DASHBOARD_JS = """<script>
+const F=(v,d)=>v===null||v===undefined?'–':(d===undefined?v:Number(v).toFixed(d));
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+function tile(v,l,cls){return `<div class="tile"><b class="${cls||''}">${v}</b><span>${l}</span></div>`}
+let range=900,status=null;
+function draw(id,legendId,all,series,fixedTop){
+ const c=document.getElementById(id),dpr=window.devicePixelRatio||1,w=c.clientWidth,h=c.clientHeight;
+ c.width=w*dpr;c.height=h*dpr;const g=c.getContext('2d');g.scale(dpr,dpr);g.clearRect(0,0,w,h);
+ const L=44,R=10,T=8,B=22,now=Date.now()/1000,t0=now-range,x=t=>L+(t-t0)/range*(w-L-R),points=all.filter(p=>p.t>=t0);
+ let max=4;series.forEach(s=>points.forEach(p=>{if(p[s.k]!=null)max=Math.max(max,p[s.k])}));
+ const step=Math.pow(10,Math.floor(Math.log10(max/4))),top=fixedTop||Math.ceil(max/4/step)*step*4,y=v=>T+(1-v/top)*(h-T-B);
+ g.font='11px system-ui,sans-serif';g.strokeStyle=css('--line');g.fillStyle=css('--muted');g.lineWidth=1;
+ for(let i=0;i<=4;i++){const v=top*i/4,yy=Math.round(y(v))+.5;g.beginPath();g.moveTo(L,yy);g.lineTo(w-R,yy);g.stroke();
+  g.textAlign='right';g.fillText(Number.isInteger(v)?v:v.toFixed(1),L-6,yy+4)}
+ const mins=range/60,tick=mins<=5?1:mins<=15?5:15;g.textAlign='center';
+ for(let m=mins;m>=0;m-=tick)g.fillText(m?`-${m} min`:'now',Math.min(Math.max(x(now-m*60),L+18),w-R-14),h-6);
+ series.forEach(s=>{g.strokeStyle=s.c;g.lineWidth=2;g.lineJoin='round';g.beginPath();let on=false,prev=0;
+  points.forEach(p=>{const v=p[s.k];if(v==null||p.t-prev>3*%d){on=false}
+   if(v!=null){const X=x(p.t),Y=y(v);on?g.lineTo(X,Y):g.moveTo(X,Y);on=true}prev=p.t});g.stroke()});
+ const last=points.length?points[points.length-1]:{};
+ document.getElementById(legendId).innerHTML=series.map(s=>`<span><i style="background:${s.c}"></i>${s.l}: <b>${F(last[s.k])}</b>${s.u||''}</span>`).join('');
+}
+function charts(){if(!status)return;const h=status.history||[];
+ draw('c-tps','l-tps',h,[{k:'gen_tps',l:'output',c:css('--brand')},{k:'prompt_tps',l:'input',c:css('--ok')}]);
+ draw('c-req','l-req',h,[{k:'running',l:'running',c:css('--brand')},{k:'waiting',l:'waiting',c:css('--warn')}]);
+ draw('c-kv','l-kv',h,[{k:'kv',l:'used',c:css('--ok'),u:'%%'}],100);
+}
+document.querySelectorAll('.range button').forEach(b=>b.addEventListener('click',()=>{range=+b.dataset.r;
+ document.querySelectorAll('.range button').forEach(o=>o.classList.toggle('on',o===b));charts()}));
+async function refresh(){let s;try{s=await (await fetch('/api/status')).json()}catch(e){return}status=s;
+ const up=s.vllm=='up',h=s.history||[],last=h.length?h[h.length-1]:{},p=s.people||{};
+ document.getElementById('tiles').innerHTML=
+  tile(s.vllm,'vLLM',up?'active':'blocked')+tile(s.model?s.model:'–',s.context?`model · ${Math.round(s.context/1024)}k context`:'model')+
+  tile(F(last.gen_tps,0),'output tokens/s')+tile(F(last.prompt_tps,0),'input tokens/s')+tile(F(last.req_min,0),'requests/min')+
+  tile(F(s.running),'running')+tile(F(s.waiting),'waiting',s.waiting>0?'pending':'')+
+  tile(s.kv==null?'–':F(s.kv,0)+'%%','KV cache',s.kv>90?'blocked':'')+
+  tile(last.ttft==null?'–':F(last.ttft,2)+' s','first token')+tile(s.prefix_hit==null?'–':F(s.prefix_hit,0)+'%%','prefix cache hits')+
+  tile(s.mem_used==null?'–':`${F(s.mem_used,0)}/${F(s.mem_total,0)}`,'memory GiB')+tile(F(s.preemptions),'preemptions',s.preemptions>0?'pending':'');
+ document.getElementById('people').innerHTML=tile(F(p.active||0),'approved','active')+tile(F(p.pending||0),'waiting',p.pending?'pending':'')+
+  tile(F(p.blocked||0),'blocked')+tile(F(s.active_users),'using the API now');
+ document.getElementById('top').textContent=s.top.length?'Most API requests, last 10 min: '+s.top.map(t=>t[0]+' ('+t[1]+')').join(', '):'';
+ document.getElementById('updated').textContent='updated '+new Date().toLocaleTimeString();
+ charts();
+}
+refresh();setInterval(refresh,5000);window.addEventListener('resize',charts);
+</script>""" % SAMPLE_EVERY
+
+
+def people_card(me: int, message: str = "") -> str:
     rows = query("SELECT * FROM users ORDER BY CASE status WHEN 'pending' THEN 0 WHEN 'active' THEN 1 ELSE 2 END, username")
     pending = sum(1 for r in rows if r["status"] == "pending")
-    status = ('<div class="card"><h2>Service</h2><div class="stats" id="stats">loading…</div>'
-              '<p class="muted" id="top"></p></div>')
     actions = {"pending": [("approve", "Approve"), ("delete", "Reject")],
                "active": [("block", "Block"), ("regen", "New key"), ("password", "Reset password"),
                           ("promote", "Make admin")],
@@ -639,22 +872,19 @@ def admin_cards(me: int, message: str = "", error: str = "") -> str:
                        "" if r["username"] == r["email"].lower() else html.escape(r["email"]), r["status"], r["status"], r["created_at"][:16].replace("T", " "), forms))
     bulk = ('<form class="inline" method="post" action="/admin/approve-all"><button class="primary">'
             'Approve all ({})</button></form>'.format(pending) if pending else "")
-    people = ('<div class="card"><h2>People {}</h2><table><tr><th>User</th><th>Status</th><th>Registered (UTC)</th>'
-              '<th></th></tr>{}</table></div>').format(bulk, "".join(trs))
-    script = """<script>
-async function refresh(){try{const s=await (await fetch('/api/status')).json();
-const f=v=>v===null||v===undefined?'–':v;
-document.getElementById('stats').innerHTML=
-`<div class=stat><b class=${s.vllm=='up'?'active':'blocked'}>${s.vllm}</b><span>vLLM</span></div>
-<div class=stat><b>${f(s.running)}</b><span>running</span></div><div class=stat><b>${f(s.waiting)}</b><span>waiting</span></div>
-<div class=stat><b>${s.kv===null?'–':s.kv+'%'}</b><span>KV cache</span></div>`;
-document.getElementById('top').textContent=s.top.length?'Most requests, last 10 min: '+s.top.map(t=>t[0]+' ('+t[1]+')').join(', '):'';
-}catch(e){}}refresh();setInterval(refresh,5000);</script>"""
+    chat = ('<p class="muted">Administrators here are also administrators of the chat.</p>' if OPENWEBUI_URL else "")
+    return admin_tabs("/admin/people") + (
+        '<div class="card"><h2>People {}</h2>{}{}<div class="scroll"><table><tr><th>User</th><th>Status</th>'
+        '<th>Registered (UTC)</th><th></th></tr>{}</table></div></div>').format(
+            bulk, flash_of(message, ""), chat, "".join(trs))
+
+
+def settings_cards(admin: sqlite3.Row, message: str = "", error: str = "", chat_message: str = "",
+                   chat_error: str = "") -> str:
     conf = settings()
-    flash = ('<p class="err">{}</p>'.format(html.escape(error)) if error else
-             '<p class="ok-msg">{}</p>'.format(html.escape(message)) if message else "")
     checked = lambda on: " checked" if on else ""  # noqa: E731
-    options = ('<div class="card" id="settings"><h2>Settings</h2>{flash}<form method="post" action="/admin/settings">'
+    options = ('<div class="card" id="settings"><h2>Registration and notice</h2>{flash}'
+               '<form method="post" action="/admin/settings">'
                '<label class="check"><input type=checkbox name=registration value=open{reg}> Registration open</label>'
                '<p class="muted field-help">When closed, nobody can create an account; existing accounts keep working.</p>'
                '<label>E-mail domains allowed to register<input name=domains value="{dom}" '
@@ -666,9 +896,23 @@ document.getElementById('top').textContent=s.top.length?'Most requests, last 10 
                '<label>Notice for users<textarea name=notice maxlength={nmax} placeholder="For example: the server '
                'restarts at 13:00.">{notice}</textarea></label><p class="muted field-help">Shown at the top of every '
                'personal page. Empty: no notice.</p><button class="primary">Save settings</button></form></div>').format(
-        flash=flash, reg=checked(conf["registration"] == "open"), dom=html.escape(conf["domains"]),
+        flash=flash_of(message, error), reg=checked(conf["registration"] == "open"), dom=html.escape(conf["domains"]),
         auto=checked(conf["auto_approve"] == "on"), nmax=NOTICE_MAX, notice=html.escape(conf["notice"]))
-    return status + people + options + script
+    chat = ""
+    if OPENWEBUI_URL:
+        try:
+            enabled: Optional[bool] = owui_web_search(admin)
+        except Exception as exc:
+            enabled, chat_error = None, chat_error or "Open WebUI cannot be reached or did not accept you as an " \
+                                                      "administrator ({}).".format(exc)
+        form = ('<form method="post" action="/admin/chat"><label class="check"><input type=checkbox name=web_search '
+                'value=on{}> Web search</label><p class="muted field-help">When on, users can let the model search '
+                'the web from a conversation (the search button in the chat). When off, the button disappears for '
+                'everyone.</p><button class="primary">Save</button></form>'.format(checked(bool(enabled)))
+                if enabled is not None else "")
+        chat = '<div class="card" id="chat"><h2>Chat (Open WebUI)</h2>{}{}</div>'.format(
+            flash_of(chat_message, chat_error), form)
+    return admin_tabs("/admin/settings") + options + chat
 
 
 # --------------------------------------------------------------------------
@@ -783,7 +1027,8 @@ class Handler(BaseHTTPRequestHandler):
             # For nginx auth_request in front of Open WebUI (trusted header login).
             if user and user["status"] == "active":
                 self.send(200, b"", "text/plain", {"X-Codendum-User": user["username"],
-                                                   "X-Codendum-Email": user["email"].lower()})
+                                                   "X-Codendum-Email": user["email"].lower(),
+                                                   "X-Codendum-Role": owui_role(user)})
             else:
                 self.send(401, b"", "text/plain")
         elif self.path == "/api/status":
@@ -801,7 +1046,8 @@ class Handler(BaseHTTPRequestHandler):
             if user["role"] == "admin" and user["status"] == "active":
                 pending = len(query("SELECT 1 FROM users WHERE status = 'pending'"))
                 body += ('<div class="card"><h2>Administration</h2><p>{} waiting for approval.</p>'
-                         '<a class="btn primary" href="/admin">Open the administration</a></div>').format(
+                         '<a class="btn primary" href="/admin{}">Open the administration</a></div>').format(
+                    "/people" if pending else "",
                     "1 person is" if pending == 1 else "{} people are".format(pending) if pending else "Nobody is")
             self.send(200, self.page("Home", body, user))
         elif path == "/profile":
@@ -810,14 +1056,20 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 saved = "Password changed. Other sessions were logged out." if "saved=1" in qs.split("&") else ""
                 self.send(200, self.page("Profile", profile_card(user, message=saved), user))
-        elif path == "/admin":
+        elif path in ("/admin", "/admin/people", "/admin/settings"):
             if not user:
-                self.redirect("/login?next=/admin")
+                self.redirect("/login?next=" + path)
             elif user["role"] != "admin" or user["status"] != "active":
                 self.send(403, self.page("Forbidden", '<div class="card">Not allowed.</div>', user))
+            elif path == "/admin":
+                self.send(200, self.page("Dashboard", dashboard(), user))
+            elif path == "/admin/people":
+                self.send(200, self.page("People", people_card(user["id"]), user))
             else:
-                saved = "Settings saved." if "saved=1" in qs.split("&") else ""
-                self.send(200, self.page("Administration", admin_cards(user["id"], saved), user))
+                flags = qs.split("&")
+                self.send(200, self.page("Settings", settings_cards(
+                    user, "Settings saved." if "saved=1" in flags else "",
+                    chat_message="Chat settings saved." if "chat=1" in flags else ""), user))
         else:
             self.send(404, self.page("Not found", '<div class="card">Not found.</div>'))
 
@@ -931,10 +1183,19 @@ class Handler(BaseHTTPRequestHandler):
             for row in query("SELECT id FROM users WHERE status = 'pending'"):
                 query("UPDATE users SET status = 'active', api_key = ? WHERE id = ?", (new_key(), row["id"]))
             write_key_map()
-            self.redirect("/admin")
+            self.redirect("/admin/people")
             return
         if self.path == "/admin/settings":
             self.save_settings(admin, data)
+            return
+        if self.path == "/admin/chat" and OPENWEBUI_URL:
+            try:
+                owui_web_search(admin, data.get("web_search") == "on")
+            except Exception as exc:
+                self.send(502, self.page("Settings", settings_cards(
+                    admin, chat_error="Open WebUI did not save the change ({}).".format(exc)), admin))
+                return
+            self.redirect("/admin/settings?chat=1#chat")
             return
         match = re.match(r"^/admin/(\d+)/(approve|block|unblock|delete|regen|password|promote|demote)$", self.path)
         if not match:
@@ -948,14 +1209,14 @@ class Handler(BaseHTTPRequestHandler):
         if action == "password":
             rows = query("SELECT username FROM users WHERE id = ?", (target,))
             if not rows:
-                self.redirect("/admin")
+                self.redirect("/admin/people")
                 return
             password = secrets.token_urlsafe(9)
             query("UPDATE users SET password = ? WHERE id = ?", (hash_password(password), target))
             query("DELETE FROM sessions WHERE user_id = ?", (target,))
             self.send(200, self.page("Password reset", (
                 '<div class="card"><h2>New password for {}</h2><p>Give it to this person; it is shown only once. '
-                'They are logged out everywhere.</p>{}<p><a class="btn" href="/admin">Back to administration</a></p>'
+                'They are logged out everywhere.</p>{}<p><a class="btn" href="/admin/people">Back to people</a></p>'
                 '</div>').format(html.escape(rows[0]["username"]), copyable("new-password", password)), admin),
                       headers={"Cache-Control": "no-store"})
             return
@@ -968,12 +1229,19 @@ class Handler(BaseHTTPRequestHandler):
             "promote": ("UPDATE users SET role = 'admin' WHERE id = ?", (target,)),
             "demote": ("UPDATE users SET role = 'user' WHERE id = ?", (target,)),
         }
+        before = query("SELECT * FROM users WHERE id = ?", (target,))
         sql, args = statements[action]
         query(sql, args)
         if action in ("block", "delete"):
             query("DELETE FROM sessions WHERE user_id = ?", (target,))
         write_key_map()
-        self.redirect("/admin")
+        # Administrators of the chat follow the administrators here.
+        after = query("SELECT * FROM users WHERE id = ?", (target,))
+        if before and (before[0]["role"] == "admin" or action == "promote"):
+            role = owui_role(after[0]) if after else "pending"
+            if role != owui_role(before[0]):
+                sync_owui_role(before[0], role)
+        self.redirect("/admin/people")
 
     def save_settings(self, admin: sqlite3.Row, data: Dict[str, str]) -> None:
         domains = domains_of(data.get("domains", ""))
@@ -982,7 +1250,7 @@ class Handler(BaseHTTPRequestHandler):
         error = ("Not a domain: {}.".format(", ".join(bad)) if bad else
                  "The notice is too long ({} characters at most).".format(NOTICE_MAX) if len(notice) > NOTICE_MAX else "")
         if error:
-            self.send(400, self.page("Administration", admin_cards(admin["id"], error=error), admin))
+            self.send(400, self.page("Settings", settings_cards(admin, error=error), admin))
             return
         values = {"registration": "open" if data.get("registration") == "open" else "closed",
                   "domains": ", ".join(dict.fromkeys(domains)),
@@ -991,7 +1259,7 @@ class Handler(BaseHTTPRequestHandler):
         for key, value in values.items():
             query("INSERT INTO settings (key, value) VALUES (?, ?) "
                   "ON CONFLICT(key) DO UPDATE SET value = excluded.value", (key, value))
-        self.redirect("/admin?saved=1#settings")
+        self.redirect("/admin/settings?saved=1")
 
 
 def main() -> None:
@@ -999,6 +1267,7 @@ def main() -> None:
     host, _, port = LISTEN.rpartition(":")
     server = ThreadingHTTPServer((host or "127.0.0.1", int(port)), Handler)
     print("codendum-web (prototype) on http://{}  db={}  map={}".format(LISTEN, DB_PATH, MAP_PATH), flush=True)
+    threading.Thread(target=sampler, name="sampler", daemon=True).start()
     if not query("SELECT 1 FROM users WHERE role = 'admin'"):
         # Only readable from the container log. A new link is printed on every
         # start until an administrator exists.
