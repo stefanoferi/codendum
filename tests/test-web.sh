@@ -91,7 +91,7 @@ A="${TMP_ROOT}/admin.jar"
 S="${TMP_ROOT}/student.jar"
 
 HEAD_SHA="$(git rev-parse HEAD)"
-if "${C[@]}" "${URL}/login" | grep -q "href=\"https://codendum.ai/\".*href=\"https://github.com/stefanoferi/codendum/commit/${HEAD_SHA}\".*<code>${HEAD_SHA:0:7}</code>"; then
+if "${C[@]}" "${URL}/login" | grep -q "href=\"https://codendum.ai\".*href=\"https://github.com/stefanoferi/codendum/commit/${HEAD_SHA}\".*<code>${HEAD_SHA:0:7}</code>"; then
     ok "footer: links to the site and GitHub, and the commit"; else not_ok "footer: links to the site and GitHub, and the commit"; fi
 echo "# registration and approval through the proxy"
 SETUP="$(docker logs "$WEB" 2>&1 | grep -oE 'register\?setup=[A-Za-z0-9_-]+' | head -1 | cut -d= -f2)"

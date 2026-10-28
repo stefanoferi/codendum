@@ -759,7 +759,7 @@ def source_commit() -> str:
 
 COMMIT = source_commit()
 REPOSITORY = "https://github.com/stefanoferi/codendum"
-FOOTER = ('<footer>Codendum © 2026 Stefano Noferi · Apache License 2.0 · <a href="https://codendum.ai/">codendum.ai</a>'
+FOOTER = ('<footer>Codendum © 2026 Stefano Noferi · Apache License 2.0 · <a href="https://codendum.ai">codendum.ai</a>'
           ' · <a href="{r}">GitHub</a>{c}</footer>').format(
               r=REPOSITORY, c=' · <a href="{}/commit/{}" title="{}"><code>{}</code></a>'.format(
                   REPOSITORY, COMMIT, COMMIT, COMMIT[:7]) if COMMIT else "")

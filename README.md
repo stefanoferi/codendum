@@ -88,7 +88,7 @@ scripts/configure-opencode.sh --base-url https://llm.lab.example:8443
 
 ## Documentation
 
-The documentation is published at <https://stefanoferi.github.io/codendum/>.
+The project website is <https://codendum.ai>, with a link to the published documentation.
 Its sources in [`docs/`](docs/) are Markdown files built with
 [Sphinx](https://www.sphinx-doc.org/) and
 [MyST](https://myst-parser.readthedocs.io/).
